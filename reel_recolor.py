@@ -54,16 +54,6 @@ TEMPLATE_FOLDER = os.path.join(
     "_static_templates"
 )
 
-os.makedirs(
-    OUTPUT_FOLDER,
-    exist_ok=True
-)
-
-os.makedirs(
-    TEMPLATE_FOLDER,
-    exist_ok=True
-)
-
 
 # ============================================================
 # COLOR HELPERS
@@ -1754,10 +1744,22 @@ def process_video(
 
 def main():
 
-    global TARGET_COLOR, TEXT_COLOR
+    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR
 
     parser = argparse.ArgumentParser(
         description="Recolor vertical video templates."
+    )
+
+    parser.add_argument(
+        "--input",
+        default=INPUT_FOLDER,
+        help='Folder containing input videos. Default: "input_videos"',
+    )
+
+    parser.add_argument(
+        "--output",
+        default=OUTPUT_FOLDER,
+        help='Folder where processed videos will be saved. Default: "output_videos"',
     )
 
     parser.add_argument(
@@ -1774,9 +1776,25 @@ def main():
 
     args = parser.parse_args()
 
+    INPUT_FOLDER = args.input
+    OUTPUT_FOLDER = args.output
     TARGET_COLOR = args.color
-
     TEXT_COLOR = args.text_color
+
+    TEMPLATE_FOLDER = os.path.join(
+        OUTPUT_FOLDER,
+        "_static_templates"
+    )
+
+    os.makedirs(
+        OUTPUT_FOLDER,
+        exist_ok=True
+    )
+
+    os.makedirs(
+        TEMPLATE_FOLDER,
+        exist_ok=True
+    )
 
     check_tools()
 
