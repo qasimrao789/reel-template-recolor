@@ -18,13 +18,14 @@ This started as a personal automation tool for a video workflow I use regularly.
 
 ## What It Does
 
-The tool takes videos from an `input_videos` folder and produces recolored **1080×1920 vertical videos** in an `output_videos` folder.
+The tool batch-processes videos from an input folder and produces recolored **1080×1920 vertical videos** in an output folder.
 
 Instead of processing every frame with Python, it analyzes only **one reference frame** to determine which parts of the layout are static and where the actual moving video is located.
 
 It then:
 
-* Resizes and center-crops the video to 1080×1920
+* Scans an entire input folder for supported videos
+* Resizes and center-crops each video to 1080×1920
 * Automatically detects the embedded movie/video region
 * Recolors the surrounding static template
 * Preserves colorful elements such as emojis
@@ -32,6 +33,7 @@ It then:
 * Uses FFmpeg to overlay the moving video onto the recolored template
 * Uses NVIDIA NVENC for H.264 encoding
 * Preserves the original audio
+* Saves completed videos into the selected output folder
 * Skips outputs that were already successfully processed
 
 ## Why I Built It
@@ -56,7 +58,11 @@ This reduces the amount of per-frame work performed in Python.
 ## How It Works
 
 ```text
-Input Video
+Input Folder
+    ↓
+Find Supported Video Files
+    ↓
+Process Each Video
     ↓
 Read Video Metadata with ffprobe
     ↓
@@ -78,11 +84,14 @@ FFmpeg Overlays Moving Video Region
     ↓
 NVIDIA NVENC H.264 Encoding
     ↓
-Final MP4
+Output Folder
 ```
 
 ## Features
 
+* Whole-folder batch processing
+* Custom input folder with `--input`
+* Custom output folder with `--output`
 * 1080×1920 vertical output
 * Aspect ratio preserved
 * No stretching
@@ -94,7 +103,6 @@ Final MP4
 * Command-line `--text-color` option
 * Automatic contrasting text color when no custom text color is provided
 * Color and emoji preservation
-* Batch processing
 * Existing-output validation
 * Resume / skip completed videos
 * Original audio preserved
@@ -176,46 +184,49 @@ cd reel-template-recolor
 pip install -r requirements.txt
 ```
 
-### 3. Create the Input Folder
+### 3. Prepare Your Videos
 
-Create a folder named:
-
-```text
-input_videos
-```
-
-Your project should look roughly like:
-
-```text
-reel-template-recolor/
-│
-├── .github/
-│   └── workflows/
-│       └── python-check.yml
-│
-├── examples/
-│   ├── before.jpg
-│   └── after.jpg
-│
-├── input_videos/
-├── README.md
-├── LICENSE
-├── reel_recolor.py
-├── requirements.txt
-└── .gitignore
-```
-
-The `output_videos` folder will be created automatically when the program runs.
-
-## Usage
-
-Place your videos inside:
+By default, the program looks for videos inside:
 
 ```text
 input_videos/
 ```
 
-Supported formats include:
+You can create that folder manually, or use the `--input` option to point the program at any folder on your computer.
+
+The default output folder is:
+
+```text
+output_videos/
+```
+
+You can also choose a different output folder with `--output`.
+
+## Basic Usage
+
+Place one or more videos inside:
+
+```text
+input_videos/
+```
+
+Then run:
+
+```bash
+python reel_recolor.py
+```
+
+The program will process every supported video directly inside that folder.
+
+Completed videos will be saved inside:
+
+```text
+output_videos/
+```
+
+## Supported Video Formats
+
+The tool currently scans for:
 
 ```text
 .mp4
@@ -225,21 +236,25 @@ Supported formats include:
 .webm
 ```
 
-Then run:
+For example:
+
+```text
+input_videos/
+├── video1.mp4
+├── video2.mov
+├── video3.mkv
+└── video4.webm
+```
+
+Running:
 
 ```bash
 python reel_recolor.py
 ```
 
-The processed videos will be saved inside:
-
-```text
-output_videos/
-```
+will process all four videos.
 
 ## Command-Line Options
-
-The tool currently supports command-line options for both the background color and text color.
 
 To see all available options:
 
@@ -247,9 +262,103 @@ To see all available options:
 python reel_recolor.py --help
 ```
 
-### Change the Background Color
+The current options are:
 
-Use `--color` followed by a hexadecimal color:
+```text
+--input
+--output
+--color
+--text-color
+```
+
+## Choose an Input Folder
+
+Use `--input` to process videos from any folder.
+
+Example:
+
+```bash
+python reel_recolor.py --input "D:\My Videos"
+```
+
+The tool will scan that folder and process all supported video files directly inside it.
+
+You are not required to copy videos into the default `input_videos` folder when using this option.
+
+## Choose an Output Folder
+
+Use `--output` to choose where completed videos are saved.
+
+Example:
+
+```bash
+python reel_recolor.py --output "D:\Finished Videos"
+```
+
+You can combine custom input and output folders:
+
+```bash
+python reel_recolor.py --input "D:\My Videos" --output "D:\Finished Videos"
+```
+
+This will:
+
+```text
+Read videos from:
+D:\My Videos
+
+Save completed videos to:
+D:\Finished Videos
+```
+
+## Whole-Folder Batch Processing
+
+The `--input` option points to a folder, not a single video file.
+
+For example, if:
+
+```text
+D:\My Videos\
+├── clip1.mp4
+├── clip2.mp4
+├── reel1.mov
+└── movie.webm
+```
+
+you run:
+
+```bash
+python reel_recolor.py --input "D:\My Videos" --output "D:\Finished"
+```
+
+the program will process all supported videos inside `D:\My Videos`.
+
+### Current Folder Limitation
+
+The current version scans the selected folder itself but does not recursively search nested subfolders.
+
+For example:
+
+```text
+My Videos/
+├── clip1.mp4
+├── clip2.mp4
+│
+└── Archive/
+    └── clip3.mp4
+```
+
+`clip1.mp4` and `clip2.mp4` will be found.
+
+`Archive/clip3.mp4` will not currently be processed automatically.
+
+Recursive folder scanning is a possible future improvement.
+
+## Change the Background Color
+
+Use `--color` followed by a standard hexadecimal `#RRGGBB` color.
+
+Example:
 
 ```bash
 python reel_recolor.py --color "#FFD400"
@@ -269,31 +378,29 @@ python reel_recolor.py --color "#000000"
 python reel_recolor.py --color "#FF0000"
 ```
 
-Colors must use the standard `#RRGGBB` hexadecimal format.
-
-### Change the Text Color
+## Change the Text Color
 
 Use `--text-color`:
 
 ```bash
-python reel_recolor.py --text-color "#000000"
+python reel_recolor.py --text-color "#FF0000"
 ```
 
-You can combine both options:
+You can combine background and text colors:
 
 ```bash
-python reel_recolor.py --color "#FFD400" --text-color "#000000"
+python reel_recolor.py --color "#FFFFFF" --text-color "#FF0000"
 ```
 
 Another example:
 
 ```bash
-python reel_recolor.py --color "#1E1E1E" --text-color "#FFFFFF"
+python reel_recolor.py --color "#0000FF" --text-color "#FFFF00"
 ```
 
-### Automatic Text Color
+## Automatic Text Color
 
-If you provide a background color but do not provide `--text-color`, the tool automatically uses the opposite RGB color for the text.
+If `--text-color` is not provided, the program automatically uses the opposite RGB color of the selected background.
 
 For example:
 
@@ -301,7 +408,12 @@ For example:
 python reel_recolor.py --color "#FFFFFF"
 ```
 
-uses a white background and automatically selects black text.
+uses:
+
+```text
+Background: white
+Text: black
+```
 
 Likewise:
 
@@ -309,11 +421,56 @@ Likewise:
 python reel_recolor.py --color "#000000"
 ```
 
-uses a black background and automatically selects white text.
+uses:
 
-## Configuration
+```text
+Background: black
+Text: white
+```
 
-The main default settings are near the top of `reel_recolor.py`.
+## Combine All Options
+
+All command-line options can be used together.
+
+Example:
+
+```bash
+python reel_recolor.py --input "D:\My Videos" --output "D:\Finished Videos" --color "#FFFFFF" --text-color "#FF0000"
+```
+
+This means:
+
+```text
+Input folder:
+D:\My Videos
+
+Output folder:
+D:\Finished Videos
+
+Background:
+White
+
+Text:
+Red
+```
+
+Every supported video directly inside the input folder will be processed using those settings.
+
+## Default Configuration
+
+The default settings are still available near the top of `reel_recolor.py`.
+
+### Default Input Folder
+
+```python
+INPUT_FOLDER = "input_videos"
+```
+
+### Default Output Folder
+
+```python
+OUTPUT_FOLDER = "output_videos"
+```
 
 ### Default Background Color
 
@@ -321,48 +478,38 @@ The main default settings are near the top of `reel_recolor.py`.
 TARGET_COLOR = "#FFFFFF"
 ```
 
-Any standard `#RRGGBB` hexadecimal color can be used.
-
-The default can still be changed directly in the source code, but the `--color` command-line option makes this unnecessary for normal use.
-
 ### Default Text Color
 
 ```python
 TEXT_COLOR = None
 ```
 
-When set to `None`, the program automatically uses the opposite RGB color of the selected background.
+When `TEXT_COLOR` is `None`, the automatic opposite-color behavior is used.
 
-You can still specify a default manually in the source:
+Command-line options override these defaults for the current run.
 
-```python
-TEXT_COLOR = "#000000"
-```
+## Output Resolution
 
-For normal usage, the command-line option is easier:
-
-```bash
-python reel_recolor.py --text-color "#000000"
-```
-
-### Output Resolution
-
-The default output is:
+The default output resolution is:
 
 ```python
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 ```
 
-### Reference Frame
+The tool preserves the original aspect ratio and then center-crops the result to completely fill the 1080×1920 output.
 
-The default reference frame is taken from the very beginning of the video:
+It does not stretch the source video and does not add padding.
+
+## Reference Frame
+
+The default reference frame is taken from the beginning of the video:
 
 ```python
 REFERENCE_TIME_SECONDS = 0.0
 ```
 
-If your videos begin with a black frame or fade-in, try:
+If your videos begin with a black frame or fade-in, try changing the source setting to:
 
 ```python
 REFERENCE_TIME_SECONDS = 0.5
@@ -370,7 +517,7 @@ REFERENCE_TIME_SECONDS = 0.5
 
 ## Automatic Video Region Detection
 
-The tool attempts to determine where the embedded movie/video area is located by analyzing the reference frame.
+The tool attempts to determine where the embedded movie/video area is located by analyzing one reference frame.
 
 It uses OpenCV to examine properties such as:
 
@@ -380,7 +527,7 @@ It uses OpenCV to examine properties such as:
 * Vertical content distribution
 * Dark separator/border regions
 
-The detected rectangle is then treated as the dynamic portion of the video.
+The detected rectangle is treated as the dynamic portion of the template.
 
 Everything outside that rectangle is used to create the static recolored template.
 
@@ -405,7 +552,7 @@ The main optimization in this project is avoiding a Python frame-processing loop
 
 A typical video may contain thousands of frames.
 
-Instead of performing OpenCV operations on every frame, this program performs the expensive template analysis only once.
+Instead of performing OpenCV operations on every frame, the program performs the expensive template analysis only once.
 
 FFmpeg then performs the final video compositing:
 
@@ -419,11 +566,13 @@ Moving Video Rectangle
 
 Video encoding is handled using NVIDIA's `h264_nvenc` encoder.
 
+This keeps frame-by-frame video processing outside Python.
+
 ## Existing Output Detection
 
-The tool can skip videos that have already been processed.
+The tool can skip videos that have already been successfully processed.
 
-It does not simply check whether the output filename exists.
+It does not simply check whether an output filename exists.
 
 Before skipping an output, it validates properties including:
 
@@ -433,7 +582,56 @@ Before skipping an output, it validates properties including:
 * Output duration
 * Whether the output appears truncated
 
-This helps avoid treating broken or incomplete encodes as successfully completed files.
+This helps avoid treating broken or incomplete encodes as successfully completed videos.
+
+## Project Structure
+
+```text
+reel-template-recolor/
+│
+├── .github/
+│   └── workflows/
+│       └── python-check.yml
+│
+├── examples/
+│   ├── before.jpg
+│   └── after.jpg
+│
+├── reel_recolor.py
+├── requirements.txt
+├── .gitignore
+├── LICENSE
+└── README.md
+```
+
+The default runtime folders are:
+
+```text
+input_videos/
+output_videos/
+```
+
+These are excluded from Git so personal videos and generated outputs are not uploaded to the repository.
+
+## Automated Checks
+
+The repository uses GitHub Actions to automatically run a Python syntax check whenever changes are pushed to `main` or included in a pull request.
+
+This helps catch syntax errors before changes are merged.
+
+## Tech Used
+
+* Python
+* OpenCV
+* NumPy
+* FFmpeg
+* ffprobe
+* NVIDIA NVENC
+* H.264
+* AAC
+* Git
+* GitHub
+* GitHub Actions
 
 ## Current Limitations
 
@@ -474,64 +672,29 @@ A CPU encoding fallback is not currently implemented.
 
 ### Heuristic Detection
 
-The movie-region detector is based on image-processing heuristics rather than a machine-learning model.
+The movie-region detector uses image-processing heuristics rather than a machine-learning model.
 
 Unusual layouts may therefore require adjustments to the detection thresholds.
 
-## Project Structure
+### No Recursive Folder Scanning Yet
 
-```text
-reel-template-recolor/
-│
-├── .github/
-│   └── workflows/
-│       └── python-check.yml
-│
-├── examples/
-│   ├── before.jpg
-│   └── after.jpg
-│
-├── reel_recolor.py
-├── requirements.txt
-├── .gitignore
-├── LICENSE
-└── README.md
-```
-
-Runtime folders such as `input_videos` and `output_videos` are excluded from Git so personal and generated videos are not uploaded to the repository.
-
-## Automated Checks
-
-The repository uses GitHub Actions to automatically run a Python syntax check whenever changes are pushed to `main` or included in a pull request.
-
-This helps catch syntax errors before changes are merged.
-
-## Tech Used
-
-* Python
-* OpenCV
-* NumPy
-* FFmpeg
-* ffprobe
-* NVIDIA NVENC
-* H.264
-* AAC
-* Git
-* GitHub Actions
+The selected input folder is batch-processed, but nested subfolders are not currently searched automatically.
 
 ## Future Improvements
 
 Possible improvements include:
 
-* Command-line input folder selection
-* Command-line output folder selection
+* Recursive subfolder processing with a `--recursive` option
 * CPU encoding fallback using `libx264`
-* Automatic encoder selection
+* Automatic GPU/CPU encoder selection
+* Command-line reference-frame selection
+* Configurable output resolution
 * Multi-frame sampling for more reliable region detection
 * Better handling of grayscale content
 * Performance benchmarks
-* More configurable detection settings
-* Additional output resolution options
+* More configurable detection thresholds
+* Automated tests beyond syntax checking
+* Packaging the tool for easier installation
 
 ## License
 
