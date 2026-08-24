@@ -4,7 +4,7 @@
 
 A Python, OpenCV, and FFmpeg tool for automatically recoloring **vertical video templates** while preserving the embedded moving video and colorful elements such as emojis.
 
-It automatically uses **NVIDIA NVENC GPU encoding when available** and falls back to **CPU encoding with libx264** when NVENC is unavailable.
+The tool supports both **NVIDIA NVENC GPU encoding** and **libx264 CPU encoding**, with automatic or manual encoder selection.
 
 This project started as a personal automation tool for a video workflow I use regularly.
 
@@ -33,8 +33,10 @@ It then:
 * Preserves colorful elements such as emojis
 * Restores the original movie region
 * Uses FFmpeg to overlay the moving video onto the recolored template
-* Uses NVIDIA NVENC when available
-* Automatically falls back to CPU encoding with libx264
+* Supports NVIDIA NVENC GPU encoding
+* Supports libx264 CPU encoding
+* Automatically chooses an encoder by default
+* Allows the encoder to be forced from the command line
 * Preserves the original audio
 * Saves completed videos into the selected output folder
 * Skips outputs that were already successfully processed
@@ -85,9 +87,7 @@ FFmpeg Overlays Moving Video Region
     ↓
 Select Encoder
     ↓
-NVENC GPU ── if available
-    │
-    └── otherwise libx264 CPU
+h264_nvenc GPU or libx264 CPU
     ↓
 Final MP4
 ```
@@ -97,6 +97,10 @@ Final MP4
 * Whole-folder batch processing
 * Custom input folder with `--input`
 * Custom output folder with `--output`
+* Manual encoder selection with `--encoder`
+* Automatic GPU/CPU encoder selection
+* NVIDIA `h264_nvenc` support
+* CPU `libx264` fallback
 * 1080×1920 vertical output
 * Aspect ratio preserved
 * No stretching
@@ -111,9 +115,6 @@ Final MP4
 * Resume / skip completed videos
 * Original audio preserved
 * FFmpeg-based video compositing
-* Automatic encoder selection
-* NVIDIA NVENC GPU encoding when available
-* libx264 CPU fallback
 * No Python per-frame processing loop
 * Automatic Python syntax checking with GitHub Actions
 
@@ -154,27 +155,16 @@ ffprobe -version
 
 ### Video Encoder
 
-The tool automatically selects an available H.264 encoder.
-
-Preferred encoder:
+The tool supports:
 
 ```text
 h264_nvenc
-```
-
-Fallback encoder:
-
-```text
 libx264
 ```
 
-An NVIDIA GPU is therefore **optional**, not required.
+At least one of these should be available in your FFmpeg build.
 
-If NVIDIA NVENC is available, the tool uses GPU encoding.
-
-If NVENC is unavailable, the tool automatically falls back to CPU encoding using `libx264`.
-
-You can inspect your available encoders on Windows with:
+On Windows:
 
 ```bash
 ffmpeg -encoders | findstr /i "nvenc libx264"
@@ -186,59 +176,7 @@ On Linux or macOS:
 ffmpeg -encoders | grep -E "nvenc|libx264"
 ```
 
-At least one of the following should be available:
-
-```text
-h264_nvenc
-libx264
-```
-
-## GPU vs CPU Encoding
-
-### NVIDIA GPU Available
-
-If FFmpeg provides `h264_nvenc`, the program automatically uses:
-
-```text
-h264_nvenc
-```
-
-This offloads H.264 encoding to the NVIDIA GPU.
-
-The program prints:
-
-```text
-Video encoder: h264_nvenc
-```
-
-### NVIDIA NVENC Not Available
-
-If NVENC cannot be used but FFmpeg provides `libx264`, the program automatically switches to CPU encoding.
-
-The program prints:
-
-```text
-Video encoder: libx264
-NVIDIA NVENC not available; using CPU encoding.
-```
-
-No setting needs to be changed manually.
-
-### Output Naming
-
-GPU-encoded outputs use a suffix containing:
-
-```text
-_recolored_cuda_
-```
-
-CPU-encoded outputs use:
-
-```text
-_recolored_cpu_
-```
-
-This makes it easy to tell which encoder produced a file.
+An NVIDIA GPU is optional.
 
 ## Installation
 
@@ -268,7 +206,7 @@ Run:
 ffmpeg -version
 ```
 
-Then check that at least one supported H.264 encoder exists.
+Then check your available H.264 encoders.
 
 Windows:
 
@@ -334,17 +272,18 @@ will process all four videos.
 
 ## Command-Line Options
 
-To see all currently available options:
+To see all available options:
 
 ```bash
 python reel_recolor.py --help
 ```
 
-Available options include:
+The current options are:
 
 ```text
 --input
 --output
+--encoder
 --color
 --text-color
 ```
@@ -359,9 +298,7 @@ Example:
 python reel_recolor.py --input "D:\My Videos"
 ```
 
-The selected directory is treated as a batch input folder.
-
-Every supported video directly inside it will be processed.
+Every supported video directly inside the selected folder will be processed.
 
 ## Choose an Output Folder
 
@@ -373,7 +310,7 @@ Example:
 python reel_recolor.py --output "D:\Finished Videos"
 ```
 
-You can combine both options:
+You can combine custom input and output folders:
 
 ```bash
 python reel_recolor.py --input "D:\My Videos" --output "D:\Finished Videos"
@@ -381,7 +318,7 @@ python reel_recolor.py --input "D:\My Videos" --output "D:\Finished Videos"
 
 ## Whole-Folder Batch Processing
 
-The `--input` option accepts a folder rather than a single video.
+The `--input` option accepts a folder rather than a single file.
 
 For example:
 
@@ -403,7 +340,7 @@ All supported videos directly inside `D:\My Videos` will be processed.
 
 ### Current Folder Limitation
 
-Nested subfolders are not currently scanned recursively.
+Nested subfolders are not currently searched recursively.
 
 For example:
 
@@ -416,9 +353,133 @@ My Videos/
     └── clip3.mp4
 ```
 
-`clip1.mp4` and `clip2.mp4` are found.
+`clip1.mp4` and `clip2.mp4` are processed.
 
 `Archive/clip3.mp4` is currently ignored.
+
+## Encoder Selection
+
+The tool supports three encoder modes:
+
+```text
+auto
+nvenc
+cpu
+```
+
+Use the `--encoder` option to choose one.
+
+### Automatic Mode
+
+This is the default:
+
+```bash
+python reel_recolor.py --encoder auto
+```
+
+Behavior:
+
+```text
+h264_nvenc available
+        ↓
+Use NVIDIA GPU encoding
+
+h264_nvenc unavailable
+        ↓
+Use libx264 CPU encoding
+```
+
+You can also simply run:
+
+```bash
+python reel_recolor.py
+```
+
+because `auto` is the default mode.
+
+### Force NVIDIA NVENC
+
+Use:
+
+```bash
+python reel_recolor.py --encoder nvenc
+```
+
+This requires FFmpeg to provide:
+
+```text
+h264_nvenc
+```
+
+If NVENC is not available, the program stops with an error instead of silently switching to CPU encoding.
+
+### Force CPU Encoding
+
+Use:
+
+```bash
+python reel_recolor.py --encoder cpu
+```
+
+This forces:
+
+```text
+libx264
+```
+
+even if NVIDIA NVENC is available.
+
+This is useful for:
+
+* Testing CPU encoding
+* Running on systems without NVIDIA GPUs
+* Comparing GPU and CPU encoding
+* Troubleshooting NVENC issues
+
+The CPU path has been tested successfully during development.
+
+## Encoder Output
+
+At startup, the program displays the selected mode and resolved encoder.
+
+For automatic GPU encoding:
+
+```text
+Encoder mode: auto
+Video encoder: h264_nvenc
+```
+
+For forced CPU encoding:
+
+```text
+Encoder mode: cpu
+Video encoder: libx264
+CPU encoding forced by --encoder cpu.
+```
+
+For automatic CPU fallback:
+
+```text
+Encoder mode: auto
+Video encoder: libx264
+NVIDIA NVENC not available; using CPU encoding.
+```
+
+## GPU vs CPU Output Names
+
+GPU-encoded files use a suffix containing:
+
+```text
+_recolored_cuda_
+```
+
+CPU-encoded files use:
+
+```text
+_recolored_cpu_
+```
+
+This makes it easy to identify which encoder produced an output.
 
 ## Change the Background Color
 
@@ -452,7 +513,7 @@ Use `--text-color`:
 python reel_recolor.py --text-color "#FF0000"
 ```
 
-You can combine it with a custom background:
+You can combine background and text colors:
 
 ```bash
 python reel_recolor.py --color "#FFFFFF" --text-color "#FF0000"
@@ -496,29 +557,37 @@ Text: white
 
 ## Combine All Options
 
-All command-line options can be used together:
+All command-line options can be combined.
+
+Example:
 
 ```bash
-python reel_recolor.py --input "D:\My Videos" --output "D:\Finished Videos" --color "#FFFFFF" --text-color "#FF0000"
+python reel_recolor.py --input "D:\My Videos" --output "D:\Finished Videos" --encoder cpu --color "#FFFFFF" --text-color "#FF0000"
 ```
 
-This tells the program to:
+This means:
 
 ```text
-Read videos from:
+Input folder:
 D:\My Videos
 
-Save videos to:
+Output folder:
 D:\Finished Videos
+
+Encoder:
+libx264 CPU
 
 Background:
 White
 
 Text:
 Red
+```
 
-Encoder:
-Automatically selected
+Another example using automatic encoder selection:
+
+```bash
+python reel_recolor.py --input "D:\My Videos" --output "D:\Finished Videos" --encoder auto --color "#FFD400"
 ```
 
 ## Default Configuration
@@ -535,6 +604,12 @@ INPUT_FOLDER = "input_videos"
 
 ```python
 OUTPUT_FOLDER = "output_videos"
+```
+
+### Default Encoder Mode
+
+```python
+ENCODER_MODE = "auto"
 ```
 
 ### Default Background Color
@@ -555,7 +630,7 @@ When `TEXT_COLOR` is `None`, automatic opposite-color behavior is used.
 
 ### NVIDIA NVENC
 
-The current NVENC defaults include:
+The current NVIDIA encoding defaults include:
 
 ```python
 NVENC_PRESET = "p1"
@@ -564,14 +639,12 @@ NVENC_CQ = "18"
 
 ### CPU / libx264
 
-The CPU fallback uses:
+The CPU encoder uses:
 
 ```python
 CPU_PRESET = "medium"
 CPU_CRF = "18"
 ```
-
-Encoder selection happens automatically when the program starts.
 
 ## Output Resolution
 
@@ -584,7 +657,7 @@ OUTPUT_HEIGHT = 1920
 
 The source aspect ratio is preserved.
 
-The image is scaled until it completely fills the 1080×1920 canvas and is then center-cropped.
+The image is scaled until it completely fills the 1080×1920 output and is then center-cropped.
 
 The program does not stretch the video and does not add padding.
 
@@ -596,7 +669,7 @@ The default reference frame is taken from the beginning of each video:
 REFERENCE_TIME_SECONDS = 0.0
 ```
 
-If videos begin with a black frame or fade-in, you can change this to something like:
+If videos begin with a black frame or fade-in, you can change this to:
 
 ```python
 REFERENCE_TIME_SECONDS = 0.5
@@ -606,7 +679,7 @@ REFERENCE_TIME_SECONDS = 0.5
 
 The tool attempts to detect the embedded movie/video area by analyzing one reference frame.
 
-OpenCV is used to examine properties including:
+OpenCV examines properties including:
 
 * Brightness
 * Saturation
@@ -631,15 +704,15 @@ The program creates a mask based on differences between RGB channels.
 
 Pixels that appear sufficiently colorful are preserved from the original reference frame.
 
-OpenCV dilation and erosion are used to clean the mask.
+OpenCV dilation and erosion are used to clean the preservation mask.
 
 ## Performance Approach
 
 The main optimization is avoiding a Python per-frame processing loop.
 
-A normal video may contain thousands of frames.
+A video may contain thousands of frames.
 
-Instead of performing OpenCV operations on every frame, the program performs the expensive template analysis only once.
+Instead of performing OpenCV operations on every frame, the program performs template analysis only once.
 
 FFmpeg then handles the frame-by-frame compositing:
 
@@ -651,7 +724,7 @@ Moving Video Rectangle
       Final Video
 ```
 
-Encoding is then handled by either:
+Encoding is handled by either:
 
 ```text
 h264_nvenc
@@ -663,7 +736,7 @@ or:
 libx264
 ```
 
-depending on what is available.
+depending on the selected encoder mode.
 
 ## Existing Output Detection
 
@@ -671,7 +744,7 @@ The tool can skip videos that have already been successfully processed.
 
 It does more than simply check whether an output filename exists.
 
-Before skipping an output, the program validates properties including:
+Before skipping an output, the program validates:
 
 * File existence
 * Minimum file size
@@ -712,7 +785,7 @@ These are excluded from Git so personal source videos and generated outputs are 
 
 ## Automated Checks
 
-The repository uses GitHub Actions to automatically run a Python syntax check when changes are pushed to `main` or included in a pull request.
+The repository uses GitHub Actions to automatically run a Python syntax check whenever changes are pushed to `main` or included in a pull request.
 
 This helps catch syntax errors before changes are merged.
 
@@ -764,7 +837,7 @@ Changing `REFERENCE_TIME_SECONDS` can help.
 
 ### CPU Encoding Performance
 
-The `libx264` fallback makes the tool usable without NVIDIA NVENC, but CPU encoding may be considerably slower than GPU encoding depending on the system.
+CPU encoding with `libx264` may be significantly slower than NVENC GPU encoding depending on the system.
 
 ### Heuristic Detection
 
@@ -780,17 +853,15 @@ The selected input folder is batch-processed, but nested subfolders are not curr
 
 Possible future improvements include:
 
-* Automatic encoder benchmarking or selection
-* Command-line encoder selection
 * Command-line reference-frame selection
+* Configurable output resolution
 * Multi-frame sampling for more reliable region detection
 * Better handling of grayscale content
-* Configurable output resolution
-* Performance benchmarks
+* Performance benchmarks comparing NVENC and libx264
 * More configurable detection thresholds
 * Automated tests beyond syntax checking
 * Easier installation and packaging
-* Recursive folder processing if needed
+* Optional recursive folder processing if needed
 
 ## License
 
