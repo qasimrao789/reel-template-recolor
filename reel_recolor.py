@@ -45,8 +45,13 @@ NVENC_CQ = "18"
 CPU_PRESET = "medium"
 CPU_CRF = "18"
 
-# Selected automatically at startup:
-# "h264_nvenc" when available, otherwise "libx264".
+# Encoder selection mode:
+# "auto" = prefer NVIDIA NVENC, then fall back to libx264
+# "nvenc" = require NVIDIA h264_nvenc
+# "cpu" = require libx264
+ENCODER_MODE = "auto"
+
+# Resolved encoder used for the current run.
 VIDEO_ENCODER = None
 
 SKIP_EXISTING_OUTPUTS = True
@@ -163,7 +168,9 @@ def find_segments(mask):
     return segments
 
 
-def check_tools():
+def check_tools(
+    encoder_mode="auto"
+):
 
     for tool in (
         "ffmpeg",
@@ -191,13 +198,54 @@ def check_tools():
 
     encoders = result.stdout
 
+    has_nvenc = (
+        "h264_nvenc" in encoders
+    )
 
-    if "h264_nvenc" in encoders:
+    has_libx264 = (
+        "libx264" in encoders
+    )
+
+
+    if encoder_mode == "nvenc":
+
+        if has_nvenc:
+
+            return "h264_nvenc"
+
+
+        raise RuntimeError(
+            "NVENC was requested, but h264_nvenc is not available "
+            "in this FFmpeg build."
+        )
+
+
+    if encoder_mode == "cpu":
+
+        if has_libx264:
+
+            return "libx264"
+
+
+        raise RuntimeError(
+            "CPU encoding was requested, but libx264 is not available "
+            "in this FFmpeg build."
+        )
+
+
+    if encoder_mode != "auto":
+
+        raise RuntimeError(
+            f"Unsupported encoder mode: {encoder_mode}"
+        )
+
+
+    if has_nvenc:
 
         return "h264_nvenc"
 
 
-    if "libx264" in encoders:
+    if has_libx264:
 
         return "libx264"
 
@@ -1809,7 +1857,7 @@ def process_video(
 
 def main():
 
-    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, VIDEO_ENCODER
+    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, ENCODER_MODE, VIDEO_ENCODER
 
     parser = argparse.ArgumentParser(
         description="Recolor vertical video templates."
@@ -1828,6 +1876,20 @@ def main():
     )
 
     parser.add_argument(
+        "--encoder",
+        choices=(
+            "auto",
+            "nvenc",
+            "cpu",
+        ),
+        default=ENCODER_MODE,
+        help=(
+            'Video encoder mode: "auto" prefers NVIDIA NVENC and falls back '
+            'to CPU; "nvenc" forces h264_nvenc; "cpu" forces libx264.'
+        ),
+    )
+
+    parser.add_argument(
         "--color",
         default=TARGET_COLOR,
         help='Background color in #RRGGBB format, e.g. "#FFD400"',
@@ -1843,6 +1905,7 @@ def main():
 
     INPUT_FOLDER = args.input
     OUTPUT_FOLDER = args.output
+    ENCODER_MODE = args.encoder
     TARGET_COLOR = args.color
     TEXT_COLOR = args.text_color
 
@@ -1861,7 +1924,9 @@ def main():
         exist_ok=True
     )
 
-    VIDEO_ENCODER = check_tools()
+    VIDEO_ENCODER = check_tools(
+        ENCODER_MODE
+    )
 
 
     background_rgb = hex_to_rgb(
@@ -1944,6 +2009,13 @@ def main():
 
     print(
 
+        f"Encoder mode: "
+        f"{ENCODER_MODE}"
+    )
+
+
+    print(
+
         f"Video encoder: "
         f"{VIDEO_ENCODER}"
     )
@@ -1951,9 +2023,17 @@ def main():
 
     if VIDEO_ENCODER == "libx264":
 
-        print(
-            "NVIDIA NVENC not available; using CPU encoding."
-        )
+        if ENCODER_MODE == "cpu":
+
+            print(
+                "CPU encoding forced by --encoder cpu."
+            )
+
+        else:
+
+            print(
+                "NVIDIA NVENC not available; using CPU encoding."
+            )
 
 
     print(
