@@ -1,5 +1,7 @@
 # Reel Template Recolor
 
+![Python Syntax Check](https://github.com/qasimrao789/reel-template-recolor/actions/workflows/python-check.yml/badge.svg)
+
 A Python, OpenCV, and FFmpeg tool for automatically recoloring **vertical video templates** while preserving the embedded moving video and colorful elements such as emojis.
 
 This started as a personal automation tool for a video workflow I use regularly.
