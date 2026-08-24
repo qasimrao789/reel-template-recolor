@@ -1754,7 +1754,7 @@ def process_video(
 
 def main():
 
-    global TARGET_COLOR
+    global TARGET_COLOR, TEXT_COLOR
 
     parser = argparse.ArgumentParser(
         description="Recolor vertical video templates."
@@ -1766,9 +1766,17 @@ def main():
         help='Background color in #RRGGBB format, e.g. "#FFD400"',
     )
 
+    parser.add_argument(
+        "--text-color",
+        default=TEXT_COLOR,
+        help='Text color in #RRGGBB format. If omitted, the opposite of --color is used.',
+    )
+
     args = parser.parse_args()
 
     TARGET_COLOR = args.color
+
+    TEXT_COLOR = args.text_color
 
     check_tools()
 
