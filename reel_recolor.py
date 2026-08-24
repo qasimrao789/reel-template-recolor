@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import subprocess
 import os
@@ -1752,6 +1753,22 @@ def process_video(
 # ============================================================
 
 def main():
+
+    global TARGET_COLOR
+
+    parser = argparse.ArgumentParser(
+        description="Recolor vertical video templates."
+    )
+
+    parser.add_argument(
+        "--color",
+        default=TARGET_COLOR,
+        help='Background color in #RRGGBB format, e.g. "#FFD400"',
+    )
+
+    args = parser.parse_args()
+
+    TARGET_COLOR = args.color
 
     check_tools()
 
