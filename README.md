@@ -91,8 +91,8 @@ Final MP4
 * Automatic embedded video region detection
 * Custom background color
 * Command-line `--color` option
-* Automatic contrasting text color
-* Optional custom text color in source settings
+* Command-line `--text-color` option
+* Automatic contrasting text color when no custom text color is provided
 * Color and emoji preservation
 * Batch processing
 * Existing-output validation
@@ -189,6 +189,10 @@ Your project should look roughly like:
 ```text
 reel-template-recolor/
 │
+├── .github/
+│   └── workflows/
+│       └── python-check.yml
+│
 ├── examples/
 │   ├── before.jpg
 │   └── after.jpg
@@ -233,11 +237,19 @@ The processed videos will be saved inside:
 output_videos/
 ```
 
-## Command-Line Color Option
+## Command-Line Options
 
-The background color can be changed without editing the Python source code.
+The tool currently supports command-line options for both the background color and text color.
 
-For example:
+To see all available options:
+
+```bash
+python reel_recolor.py --help
+```
+
+### Change the Background Color
+
+Use `--color` followed by a hexadecimal color:
 
 ```bash
 python reel_recolor.py --color "#FFD400"
@@ -259,17 +271,49 @@ python reel_recolor.py --color "#FF0000"
 
 Colors must use the standard `#RRGGBB` hexadecimal format.
 
-To view the available command-line options:
+### Change the Text Color
+
+Use `--text-color`:
 
 ```bash
-python reel_recolor.py --help
+python reel_recolor.py --text-color "#000000"
 ```
 
-If no `--color` option is provided, the program uses the default color configured in the source code.
+You can combine both options:
+
+```bash
+python reel_recolor.py --color "#FFD400" --text-color "#000000"
+```
+
+Another example:
+
+```bash
+python reel_recolor.py --color "#1E1E1E" --text-color "#FFFFFF"
+```
+
+### Automatic Text Color
+
+If you provide a background color but do not provide `--text-color`, the tool automatically uses the opposite RGB color for the text.
+
+For example:
+
+```bash
+python reel_recolor.py --color "#FFFFFF"
+```
+
+uses a white background and automatically selects black text.
+
+Likewise:
+
+```bash
+python reel_recolor.py --color "#000000"
+```
+
+uses a black background and automatically selects white text.
 
 ## Configuration
 
-The main settings are near the top of `reel_recolor.py`.
+The main default settings are near the top of `reel_recolor.py`.
 
 ### Default Background Color
 
@@ -281,9 +325,7 @@ Any standard `#RRGGBB` hexadecimal color can be used.
 
 The default can still be changed directly in the source code, but the `--color` command-line option makes this unnecessary for normal use.
 
-### Text Color
-
-By default:
+### Default Text Color
 
 ```python
 TEXT_COLOR = None
@@ -291,10 +333,16 @@ TEXT_COLOR = None
 
 When set to `None`, the program automatically uses the opposite RGB color of the selected background.
 
-You can also specify a color manually:
+You can still specify a default manually in the source:
 
 ```python
 TEXT_COLOR = "#000000"
+```
+
+For normal usage, the command-line option is easier:
+
+```bash
+python reel_recolor.py --text-color "#000000"
 ```
 
 ### Output Resolution
@@ -475,9 +523,8 @@ This helps catch syntax errors before changes are merged.
 
 Possible improvements include:
 
-* More command-line options
-* Command-line input and output folder selection
-* Command-line text color selection
+* Command-line input folder selection
+* Command-line output folder selection
 * CPU encoding fallback using `libx264`
 * Automatic encoder selection
 * Multi-frame sampling for more reliable region detection
