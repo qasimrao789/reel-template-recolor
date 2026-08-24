@@ -41,10 +41,19 @@ EMOJI_MASK_ERODE_PASSES = 3
 NVENC_PRESET = "p1"
 NVENC_CQ = "18"
 
+# CPU fallback settings used when NVIDIA NVENC is unavailable.
+CPU_PRESET = "medium"
+CPU_CRF = "18"
+
+# Selected automatically at startup:
+# "h264_nvenc" when available, otherwise "libx264".
+VIDEO_ENCODER = None
+
 SKIP_EXISTING_OUTPUTS = True
 
 # Keep this suffix unchanged so previously completed videos are skipped.
 OUTPUT_SUFFIX = "_recolored_cuda_1080x1920_cropfill.mp4"
+CPU_OUTPUT_SUFFIX = "_recolored_cpu_1080x1920_cropfill.mp4"
 
 # Fast scaling before template/video processing.
 SCALE_FLAGS = "bilinear"
@@ -180,11 +189,23 @@ def check_tools():
     )
 
 
-    if "h264_nvenc" not in result.stdout:
+    encoders = result.stdout
 
-        raise RuntimeError(
-            "This FFmpeg build does not contain h264_nvenc"
-        )
+
+    if "h264_nvenc" in encoders:
+
+        return "h264_nvenc"
+
+
+    if "libx264" in encoders:
+
+        return "libx264"
+
+
+    raise RuntimeError(
+        "No supported H.264 encoder found. "
+        "Install an FFmpeg build containing h264_nvenc or libx264."
+    )
 
 
 def probe_video(video_path):
@@ -1372,23 +1393,53 @@ def encode_with_static_template(
 
         "-map",
         "0:a?",
+    ]
 
 
-        # NVIDIA encoder
-        "-c:v",
-        "h264_nvenc",
+    if VIDEO_ENCODER == "h264_nvenc":
 
-        "-preset",
-        NVENC_PRESET,
+        cmd += [
 
-        "-rc",
-        "vbr",
+            "-c:v",
+            "h264_nvenc",
 
-        "-cq",
-        NVENC_CQ,
+            "-preset",
+            NVENC_PRESET,
 
-        "-b:v",
-        "0",
+            "-rc",
+            "vbr",
+
+            "-cq",
+            NVENC_CQ,
+
+            "-b:v",
+            "0",
+        ]
+
+
+    elif VIDEO_ENCODER == "libx264":
+
+        cmd += [
+
+            "-c:v",
+            "libx264",
+
+            "-preset",
+            CPU_PRESET,
+
+            "-crf",
+            CPU_CRF,
+        ]
+
+
+    else:
+
+        raise RuntimeError(
+            f"Unsupported video encoder: {VIDEO_ENCODER}"
+        )
+
+
+    cmd += [
 
         "-pix_fmt",
         "yuv420p",
@@ -1419,6 +1470,20 @@ def encode_with_static_template(
 
 
 # ============================================================
+# OUTPUT NAME
+# ============================================================
+
+def get_output_suffix():
+
+    if VIDEO_ENCODER == "libx264":
+
+        return CPU_OUTPUT_SUFFIX
+
+
+    return OUTPUT_SUFFIX
+
+
+# ============================================================
 # PROCESS ONE VIDEO
 # ============================================================
 
@@ -1440,7 +1505,7 @@ def process_video(
 
         OUTPUT_FOLDER,
 
-        f"{name}{OUTPUT_SUFFIX}",
+        f"{name}{get_output_suffix()}",
     )
 
 
@@ -1744,7 +1809,7 @@ def process_video(
 
 def main():
 
-    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR
+    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, VIDEO_ENCODER
 
     parser = argparse.ArgumentParser(
         description="Recolor vertical video templates."
@@ -1796,7 +1861,7 @@ def main():
         exist_ok=True
     )
 
-    check_tools()
+    VIDEO_ENCODER = check_tools()
 
 
     background_rgb = hex_to_rgb(
@@ -1875,6 +1940,20 @@ def main():
         f"Skip completed outputs: "
         f"{SKIP_EXISTING_OUTPUTS}"
     )
+
+
+    print(
+
+        f"Video encoder: "
+        f"{VIDEO_ENCODER}"
+    )
+
+
+    if VIDEO_ENCODER == "libx264":
+
+        print(
+            "NVIDIA NVENC not available; using CPU encoding."
+        )
 
 
     print(
