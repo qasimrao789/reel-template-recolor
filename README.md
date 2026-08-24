@@ -90,8 +90,9 @@ Final MP4
 * Automatic center cropping
 * Automatic embedded video region detection
 * Custom background color
+* Command-line `--color` option
 * Automatic contrasting text color
-* Optional custom text color
+* Optional custom text color in source settings
 * Color and emoji preservation
 * Batch processing
 * Existing-output validation
@@ -100,6 +101,7 @@ Final MP4
 * FFmpeg-based video compositing
 * NVIDIA NVENC H.264 encoding
 * No Python per-frame processing loop
+* Automatic Python syntax checking with GitHub Actions
 
 ## Requirements
 
@@ -140,7 +142,7 @@ ffprobe -version
 
 The current version requires an NVIDIA GPU and an FFmpeg build containing the `h264_nvenc` encoder.
 
-You can check for NVENC support with:
+On Windows, you can check for NVENC support with:
 
 ```bash
 ffmpeg -encoders | findstr nvenc
@@ -156,7 +158,7 @@ You should see `h264_nvenc` in the output.
 
 ## Installation
 
-### 1. Clone the repository
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/qasimrao789/reel-template-recolor.git
@@ -168,13 +170,13 @@ Move into the project folder:
 cd reel-template-recolor
 ```
 
-### 2. Install Python dependencies
+### 2. Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Create the input folder
+### 3. Create the Input Folder
 
 Create a folder named:
 
@@ -193,6 +195,7 @@ reel-template-recolor/
 │
 ├── input_videos/
 ├── README.md
+├── LICENSE
 ├── reel_recolor.py
 ├── requirements.txt
 └── .gitignore
@@ -230,11 +233,45 @@ The processed videos will be saved inside:
 output_videos/
 ```
 
+## Command-Line Color Option
+
+The background color can be changed without editing the Python source code.
+
+For example:
+
+```bash
+python reel_recolor.py --color "#FFD400"
+```
+
+Other examples:
+
+```bash
+python reel_recolor.py --color "#FFFFFF"
+```
+
+```bash
+python reel_recolor.py --color "#000000"
+```
+
+```bash
+python reel_recolor.py --color "#FF0000"
+```
+
+Colors must use the standard `#RRGGBB` hexadecimal format.
+
+To view the available command-line options:
+
+```bash
+python reel_recolor.py --help
+```
+
+If no `--color` option is provided, the program uses the default color configured in the source code.
+
 ## Configuration
 
 The main settings are near the top of `reel_recolor.py`.
 
-### Background Color
+### Default Background Color
 
 ```python
 TARGET_COLOR = "#FFFFFF"
@@ -242,17 +279,7 @@ TARGET_COLOR = "#FFFFFF"
 
 Any standard `#RRGGBB` hexadecimal color can be used.
 
-For example:
-
-```python
-TARGET_COLOR = "#000000"
-```
-
-or:
-
-```python
-TARGET_COLOR = "#FFD400"
-```
+The default can still be changed directly in the source code, but the `--color` command-line option makes this unnecessary for normal use.
 
 ### Text Color
 
@@ -408,6 +435,10 @@ Unusual layouts may therefore require adjustments to the detection thresholds.
 ```text
 reel-template-recolor/
 │
+├── .github/
+│   └── workflows/
+│       └── python-check.yml
+│
 ├── examples/
 │   ├── before.jpg
 │   └── after.jpg
@@ -415,10 +446,17 @@ reel-template-recolor/
 ├── reel_recolor.py
 ├── requirements.txt
 ├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
 Runtime folders such as `input_videos` and `output_videos` are excluded from Git so personal and generated videos are not uploaded to the repository.
+
+## Automated Checks
+
+The repository uses GitHub Actions to automatically run a Python syntax check whenever changes are pushed to `main` or included in a pull request.
+
+This helps catch syntax errors before changes are merged.
 
 ## Tech Used
 
@@ -430,19 +468,29 @@ Runtime folders such as `input_videos` and `output_videos` are excluded from Git
 * NVIDIA NVENC
 * H.264
 * AAC
+* Git
+* GitHub Actions
 
 ## Future Improvements
 
 Possible improvements include:
 
-* Command-line arguments instead of editing settings in the source code
+* More command-line options
+* Command-line input and output folder selection
+* Command-line text color selection
 * CPU encoding fallback using `libx264`
+* Automatic encoder selection
 * Multi-frame sampling for more reliable region detection
 * Better handling of grayscale content
-* Automatic encoder selection
 * Performance benchmarks
 * More configurable detection settings
 * Additional output resolution options
+
+## License
+
+This project is available under the MIT License.
+
+See the `LICENSE` file for details.
 
 ## Project Status
 
