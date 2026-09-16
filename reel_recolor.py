@@ -28,6 +28,18 @@ TEXT_COLOR = None
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 
+# Optional branding/logo overlay.
+# LOGO_PATH = None disables the feature entirely.
+LOGO_PATH = None
+
+# Vertical gap in pixels between the bottom of the detected
+# movie/picture frame and the top of the logo.
+LOGO_GAP_PX = 40
+
+# Logo width as a fraction of the detected frame's width.
+# Height is auto-scaled to preserve the logo's aspect ratio.
+LOGO_SCALE = 1.0
+
 # 0.0 = analyze the literal first frame only.
 # If some videos begin with a black/fade frame, use 0.5 instead.
 REFERENCE_TIME_SECONDS = 0.0
@@ -168,6 +180,59 @@ def find_segments(mask):
     return segments
 
 
+def nvenc_is_usable():
+
+    # h264_nvenc can be listed by "ffmpeg -encoders" while still
+    # failing at runtime, e.g. when no working NVIDIA driver/CUDA
+    # runtime is actually loadable (missing/broken nvcuda.dll).
+    # A tiny real test encode is the only reliable way to know.
+
+    test_cmd = [
+
+        "ffmpeg",
+
+        "-hide_banner",
+
+        "-loglevel",
+        "error",
+
+        "-f",
+        "lavfi",
+
+        "-i",
+        "color=c=black:s=64x64:d=0.1",
+
+        "-frames:v",
+        "1",
+
+        "-c:v",
+        "h264_nvenc",
+
+        "-f",
+        "null",
+
+        "-",
+    ]
+
+
+    try:
+
+        result = subprocess.run(
+            test_cmd,
+            capture_output=True,
+            text=True,
+        )
+
+    except Exception:
+
+        return False
+
+
+    return (
+        result.returncode == 0
+    )
+
+
 def check_tools(
     encoder_mode="auto"
 ):
@@ -209,15 +274,24 @@ def check_tools(
 
     if encoder_mode == "nvenc":
 
-        if has_nvenc:
+        if not has_nvenc:
 
-            return "h264_nvenc"
+            raise RuntimeError(
+                "NVENC was requested, but h264_nvenc is not available "
+                "in this FFmpeg build."
+            )
 
 
-        raise RuntimeError(
-            "NVENC was requested, but h264_nvenc is not available "
-            "in this FFmpeg build."
-        )
+        if not nvenc_is_usable():
+
+            raise RuntimeError(
+                "NVENC was requested, but a test encode with h264_nvenc "
+                "failed. Your NVIDIA driver or CUDA runtime may be "
+                "missing or broken. Try --encoder cpu instead."
+            )
+
+
+        return "h264_nvenc"
 
 
     if encoder_mode == "cpu":
@@ -240,7 +314,7 @@ def check_tools(
         )
 
 
-    if has_nvenc:
+    if has_nvenc and nvenc_is_usable():
 
         return "h264_nvenc"
 
@@ -899,6 +973,52 @@ def detect_picture_area_from_frame(
 
 
 # ============================================================
+# LOGO GEOMETRY
+#
+# Anchored to the detected frame so it adapts automatically
+# to whatever position/size that frame has in each video.
+# ============================================================
+
+def compute_logo_geometry(
+    x,
+    y,
+    picture_width,
+    picture_height,
+):
+
+    logo_x = x
+
+    logo_y = (
+        y
+        +
+        picture_height
+        +
+        LOGO_GAP_PX
+    )
+
+    logo_width = round(
+        picture_width
+        *
+        LOGO_SCALE
+    )
+
+    if logo_width % 2:
+
+        logo_width += 1
+
+    logo_width = max(
+        2,
+        logo_width
+    )
+
+    return (
+        logo_x,
+        logo_y,
+        logo_width
+    )
+
+
+# ============================================================
 # BUILD STATIC RECOLORED TEMPLATE
 #
 # IMPORTANT:
@@ -1372,6 +1492,11 @@ def encode_with_static_template(
 ):
 
 
+    logo_enabled = (
+        LOGO_PATH is not None
+    )
+
+
     filter_complex = (
 
         f"[0:v]"
@@ -1392,16 +1517,63 @@ def encode_with_static_template(
         f"{OUTPUT_HEIGHT},"
         f"setsar=1"
         f"[base];"
-
-        f"[base]"
-        f"[movie]"
-        f"overlay="
-        f"{x}:"
-        f"{y}:"
-        f"shortest=1,"
-        f"format=yuv420p"
-        f"[v]"
     )
+
+
+    if logo_enabled:
+
+        (
+            logo_x,
+            logo_y,
+            logo_width
+        ) = compute_logo_geometry(
+            x,
+            y,
+            picture_width,
+            picture_height,
+        )
+
+        filter_complex += (
+
+            f"[base]"
+            f"[movie]"
+            f"overlay="
+            f"{x}:"
+            f"{y}:"
+            f"shortest=1"
+            f"[composited];"
+
+            f"[2:v]"
+            f"format=rgba,"
+            f"scale="
+            f"{logo_width}:"
+            f"-2"
+            f"[logo];"
+
+            f"[composited]"
+            f"[logo]"
+            f"overlay="
+            f"{logo_x}:"
+            f"{logo_y}:"
+            f"shortest=1,"
+            f"format=yuv420p"
+            f"[v]"
+        )
+
+
+    else:
+
+        filter_complex += (
+
+            f"[base]"
+            f"[movie]"
+            f"overlay="
+            f"{x}:"
+            f"{y}:"
+            f"shortest=1,"
+            f"format=yuv420p"
+            f"[v]"
+        )
 
 
     cmd = [
@@ -1430,7 +1602,26 @@ def encode_with_static_template(
 
         "-i",
         template_path,
+    ]
 
+
+    if logo_enabled:
+
+        cmd += [
+
+            # Logo / branding overlay
+            "-loop",
+            "1",
+
+            "-framerate",
+            f"{fps:.8f}",
+
+            "-i",
+            LOGO_PATH,
+        ]
+
+
+    cmd += [
 
         "-filter_complex",
         filter_complex,
@@ -1525,10 +1716,25 @@ def get_output_suffix():
 
     if VIDEO_ENCODER == "libx264":
 
-        return CPU_OUTPUT_SUFFIX
+        suffix = CPU_OUTPUT_SUFFIX
+
+    else:
+
+        suffix = OUTPUT_SUFFIX
 
 
-    return OUTPUT_SUFFIX
+    if LOGO_PATH is not None:
+
+        base, ext = os.path.splitext(
+            suffix
+        )
+
+        suffix = (
+            f"{base}_logo{ext}"
+        )
+
+
+    return suffix
 
 
 # ============================================================
@@ -1765,6 +1971,41 @@ def process_video(
     )
 
 
+    if LOGO_PATH is not None:
+
+        (
+            logo_x,
+            logo_y,
+            logo_width
+        ) = compute_logo_geometry(
+            x,
+            y,
+            picture_width,
+            picture_height,
+        )
+
+        print(
+            "Logo overlay: "
+
+            f"{LOGO_PATH} "
+
+            f"(x={logo_x}, "
+
+            f"y={logo_y}, "
+
+            f"width={logo_width}, "
+
+            f"gap={LOGO_GAP_PX}px)"
+        )
+
+        if logo_y >= OUTPUT_HEIGHT:
+
+            print(
+                "WARNING: logo position is below the output "
+                "canvas and will not be visible."
+            )
+
+
     print(
         f"Background RGB: "
         f"{background_rgb}"
@@ -1857,7 +2098,7 @@ def process_video(
 
 def main():
 
-    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, ENCODER_MODE, VIDEO_ENCODER
+    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, ENCODER_MODE, VIDEO_ENCODER, LOGO_PATH, LOGO_GAP_PX, LOGO_SCALE
 
     parser = argparse.ArgumentParser(
         description="Recolor vertical video templates."
@@ -1901,6 +2142,35 @@ def main():
         help='Text color in #RRGGBB format. If omitted, the opposite of --color is used.',
     )
 
+    parser.add_argument(
+        "--logo",
+        default=LOGO_PATH,
+        help=(
+            "Path to a logo/branding image to overlay below the detected "
+            "movie frame. If omitted, no logo is added."
+        ),
+    )
+
+    parser.add_argument(
+        "--logo-gap",
+        type=int,
+        default=LOGO_GAP_PX,
+        help=(
+            "Vertical gap in pixels between the bottom of the detected "
+            "movie frame and the top of the logo. Default: 40"
+        ),
+    )
+
+    parser.add_argument(
+        "--logo-scale",
+        type=float,
+        default=LOGO_SCALE,
+        help=(
+            "Logo width as a fraction of the detected frame's width. "
+            "Height is scaled to preserve aspect ratio. Default: 1.0"
+        ),
+    )
+
     args = parser.parse_args()
 
     INPUT_FOLDER = args.input
@@ -1908,6 +2178,23 @@ def main():
     ENCODER_MODE = args.encoder
     TARGET_COLOR = args.color
     TEXT_COLOR = args.text_color
+    LOGO_PATH = args.logo
+    LOGO_GAP_PX = args.logo_gap
+    LOGO_SCALE = args.logo_scale
+
+    if (
+        LOGO_PATH is not None
+
+        and
+
+        not os.path.isfile(
+            LOGO_PATH
+        )
+    ):
+
+        raise RuntimeError(
+            f"Logo file not found: {LOGO_PATH}"
+        )
 
     TEMPLATE_FOLDER = os.path.join(
         OUTPUT_FOLDER,
@@ -2007,6 +2294,30 @@ def main():
     )
 
 
+    if LOGO_PATH is not None:
+
+        print(
+            f"Logo: "
+            f"{LOGO_PATH}"
+        )
+
+        print(
+            f"Logo gap: "
+            f"{LOGO_GAP_PX}px"
+        )
+
+        print(
+            f"Logo scale: "
+            f"{LOGO_SCALE}"
+        )
+
+    else:
+
+        print(
+            "Logo: disabled"
+        )
+
+
     print(
 
         f"Encoder mode: "
@@ -2032,7 +2343,8 @@ def main():
         else:
 
             print(
-                "NVIDIA NVENC not available; using CPU encoding."
+                "NVIDIA NVENC not available or not working "
+                "(missing/broken driver); using CPU encoding."
             )
 
 

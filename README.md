@@ -111,6 +111,9 @@ Final MP4
 * Custom text color
 * Automatic contrasting text color
 * Color and emoji preservation
+* Optional automatic logo/branding overlay with `--logo`
+* Logo positioned and scaled relative to the detected movie/picture region
+* Logo colors and transparency preserved (not recolored)
 * Existing-output validation
 * Resume / skip completed videos
 * Original audio preserved
@@ -286,6 +289,9 @@ The current options are:
 --encoder
 --color
 --text-color
+--logo
+--logo-gap
+--logo-scale
 ```
 
 ## Choose an Input Folder
@@ -554,6 +560,64 @@ results in:
 Background: black
 Text: white
 ```
+
+## Logo / Branding Overlay
+
+Use `--logo` to automatically overlay a branding image (for example a channel logo with a name and handle, like a tweet header) onto every processed video.
+
+Example:
+
+```bash
+python reel_recolor.py --logo "D:\Branding\logo.png"
+```
+
+If `--logo` is omitted, no logo is added and behavior is unchanged.
+
+### Automatic Positioning
+
+Every video's embedded movie/picture region is detected independently, so its position and size differ from video to video. The logo is positioned relative to that detected region instead of a fixed pixel location:
+
+* The logo's **top edge** is placed below the **bottom edge** of the detected movie/picture region.
+* The logo is **left-aligned** with the **left edge** of the detected movie/picture region.
+* The logo is **scaled to the width** of the detected movie/picture region, with its height scaled proportionally to preserve its own aspect ratio.
+
+This means the same `--logo` image is repositioned and rescaled automatically for each video, based on that video's own detected frame.
+
+### Logo Colors
+
+The logo image keeps its own original colors. It is not recolored like the surrounding template, and transparency (for example a PNG with an alpha channel) is preserved.
+
+### Gap Below the Frame
+
+Use `--logo-gap` to control the vertical spacing, in pixels, between the bottom of the detected movie/picture region and the top of the logo.
+
+```bash
+python reel_recolor.py --logo "D:\Branding\logo.png" --logo-gap 60
+```
+
+The default is:
+
+```python
+LOGO_GAP_PX = 40
+```
+
+### Logo Scale
+
+Use `--logo-scale` to control the logo's width as a fraction of the detected movie/picture region's width. The default is `1.0`, meaning the logo is scaled to exactly match that width.
+
+```bash
+python reel_recolor.py --logo "D:\Branding\logo.png" --logo-scale 0.75
+```
+
+The default is:
+
+```python
+LOGO_SCALE = 1.0
+```
+
+### Logo Output Naming
+
+Outputs produced with `--logo` get an additional `_logo` marker in the filename, so they are distinct from outputs produced without a logo and are not skipped by the [existing-output detection](#existing-output-detection) as already complete.
 
 ## Combine All Options
 
