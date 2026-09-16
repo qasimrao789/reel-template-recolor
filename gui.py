@@ -93,6 +93,7 @@ class App(ctk.CTk):
 
         self.preview_queue = queue.Queue()
         self.log_queue = queue.Queue()
+        self.batch_status_queue = queue.Queue()
 
         self.settings = self._load_settings()
 
@@ -1625,6 +1626,18 @@ class App(ctk.CTk):
 
             pass
 
+        try:
+
+            while True:
+
+                self.batch_status_queue.get_nowait()
+
+                self._on_batch_finished()
+
+        except queue.Empty:
+
+            pass
+
         self.after(
             80,
             self._poll_queues,
@@ -1783,9 +1796,14 @@ class App(ctk.CTk):
 
             self.batch_process = None
 
-            self.after(
-                0,
-                self._on_batch_finished,
+            # Tkinter's .after() must only be called from the main
+            # thread; scheduling it here (from this worker thread)
+            # is what was freezing the GUI. Signal completion
+            # through the same thread-safe queue mechanism as
+            # everything else instead, and let _poll_queues (which
+            # already runs on the main thread) act on it.
+            self.batch_status_queue.put(
+                "finished"
             )
 
 
