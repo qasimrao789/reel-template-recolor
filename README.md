@@ -114,6 +114,7 @@ Final MP4
 * Optional automatic logo/branding overlay with `--logo`
 * Logo positioned and scaled relative to the detected movie/picture region
 * Logo colors and transparency preserved (not recolored)
+* Optional generated branding block (avatar, name, verified checkmark, handle) as an alternative to a pre-made logo file
 * Existing-output validation
 * Resume / skip completed videos
 * Original audio preserved
@@ -139,6 +140,7 @@ The project currently uses:
 
 * NumPy
 * OpenCV
+* Pillow
 
 ### FFmpeg
 
@@ -292,6 +294,10 @@ The current options are:
 --logo
 --logo-gap
 --logo-scale
+--avatar
+--display-name
+--username
+--verified / --no-verified
 ```
 
 ## Choose an Input Folder
@@ -617,7 +623,39 @@ LOGO_SCALE = 1.0
 
 ### Logo Output Naming
 
-Outputs produced with `--logo` get an additional `_logo` marker in the filename, so they are distinct from outputs produced without a logo and are not skipped by the [existing-output detection](#existing-output-detection) as already complete.
+Outputs produced with `--logo` (or a generated logo, see below) get an additional `_logo` marker in the filename, so they are distinct from outputs produced without a logo and are not skipped by the [existing-output detection](#existing-output-detection) as already complete.
+
+## Generated Branding Block
+
+Instead of hand-making a logo image, the tool can generate a "profile header" style graphic — a circular avatar, bold display name, optional blue verified checkmark, and `@handle` — directly from simple, editable inputs. It is positioned, scaled, and colored the same way as a manual `--logo` image (see above), and the two are mutually exclusive: use one or the other, not both.
+
+```bash
+python reel_recolor.py --avatar "D:\Branding\avatar.png" --display-name "Funnyhoodvidzzzzzz" --username "funnyhoodvidzzzzzz"
+```
+
+### Generated Logo Options
+
+```text
+--avatar
+--display-name
+--username
+--verified / --no-verified
+```
+
+* `--avatar` — path to a profile picture. It is automatically center-cropped and masked into a circle.
+* `--display-name` — the bold name line.
+* `--username` — the handle shown below the name. A leading `@` is added automatically if omitted.
+* `--verified` / `--no-verified` — shows or hides the blue checkmark badge next to the display name. Verified is on by default.
+
+Any combination of `--avatar`, `--display-name`, and `--username` can be used on its own; whichever parts are provided are the parts that get drawn. For example, `--avatar` alone renders just the circular picture with no text.
+
+### Generated Logo Colors
+
+The display name uses the same text color as the recolored template (`--text-color`, or the automatic opposite of `--color`), so it stays legible on whatever background color is chosen. The username is a lighter, muted version of that same color. The verified checkmark badge always stays brand blue, regardless of `--color`.
+
+### Combining with `--logo`
+
+`--logo` and the generated-logo options (`--avatar`/`--display-name`/`--username`) cannot be used together. Providing both raises an error explaining to pick one approach.
 
 ## Combine All Options
 

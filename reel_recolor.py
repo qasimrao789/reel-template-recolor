@@ -10,6 +10,12 @@ from fractions import Fraction
 
 import numpy as np
 
+from PIL import (
+    Image,
+    ImageDraw,
+    ImageFont,
+)
+
 
 # ============================================================
 # SETTINGS
@@ -39,6 +45,48 @@ LOGO_GAP_PX = 40
 # Logo width as a fraction of the detected frame's width.
 # Height is auto-scaled to preserve the logo's aspect ratio.
 LOGO_SCALE = 1.0
+
+# ------------------------------------------------------------
+# Generated branding block (avatar + name + checkmark + handle).
+# Alternative to a ready-made LOGO_PATH image; set via
+# --avatar / --display-name / --username / --verified.
+# Rendered once at this internal resolution, then scaled down
+# to the detected frame width like any other logo.
+# ------------------------------------------------------------
+
+AVATAR_PATH = None
+DISPLAY_NAME = None
+USERNAME = None
+VERIFIED_BADGE = True
+
+AVATAR_DIAMETER = 240
+LOGO_PADDING = 20
+AVATAR_TEXT_GAP = 28
+
+NAME_FONT_SIZE = 64
+USERNAME_FONT_SIZE = 50
+TEXT_LINE_GAP = 10
+
+CHECKMARK_GAP = 14
+CHECKMARK_DIAMETER_RATIO = 0.8
+
+USERNAME_BLEND_TOWARD_BACKGROUND = 0.55
+
+BOLD_FONT_CANDIDATES = (
+    r"C:\Windows\Fonts\segoeuib.ttf",
+    r"C:\Windows\Fonts\arialbd.ttf",
+)
+
+REGULAR_FONT_CANDIDATES = (
+    r"C:\Windows\Fonts\segoeui.ttf",
+    r"C:\Windows\Fonts\arial.ttf",
+)
+
+CHECKMARK_BLUE = (
+    29,
+    155,
+    240,
+)
 
 # 0.0 = analyze the literal first frame only.
 # If some videos begin with a black/fade frame, use 0.5 instead.
@@ -1016,6 +1064,517 @@ def compute_logo_geometry(
         logo_y,
         logo_width
     )
+
+
+# ============================================================
+# GENERATED BRANDING BLOCK
+#
+# Builds the same kind of image LOGO_PATH would normally point
+# to, from simple editable parts (avatar / name / handle /
+# checkmark) instead of requiring a pre-made file.
+# ============================================================
+
+def resolve_font(
+    candidates,
+    size
+):
+
+    for path in candidates:
+
+        if os.path.isfile(path):
+
+            try:
+
+                return ImageFont.truetype(
+                    path,
+                    size
+                )
+
+            except Exception:
+
+                continue
+
+
+    print(
+        "WARNING: no TrueType font found for the generated logo "
+        "text; falling back to a low-quality built-in font."
+    )
+
+    return ImageFont.load_default()
+
+
+def crop_avatar_to_circle(
+    avatar_path,
+    diameter
+):
+
+    source = Image.open(
+        avatar_path
+    ).convert(
+        "RGBA"
+    )
+
+    width, height = source.size
+
+    side = min(
+        width,
+        height
+    )
+
+    left = (
+        width - side
+    ) // 2
+
+    top = (
+        height - side
+    ) // 2
+
+    source = source.crop(
+        (
+            left,
+            top,
+            left + side,
+            top + side,
+        )
+    )
+
+    source = source.resize(
+        (
+            diameter,
+            diameter
+        ),
+        Image.Resampling.LANCZOS,
+    )
+
+    mask = Image.new(
+        "L",
+        (
+            diameter,
+            diameter
+        ),
+        0,
+    )
+
+    ImageDraw.Draw(
+        mask
+    ).ellipse(
+        (
+            0,
+            0,
+            diameter - 1,
+            diameter - 1,
+        ),
+        fill=255,
+    )
+
+    circular = Image.new(
+        "RGBA",
+        (
+            diameter,
+            diameter
+        ),
+        (
+            0,
+            0,
+            0,
+            0,
+        ),
+    )
+
+    circular.paste(
+        source,
+        (0, 0),
+        mask,
+    )
+
+    return circular
+
+
+def draw_checkmark_badge(
+    draw,
+    center,
+    diameter
+):
+
+    cx, cy = center
+
+    radius = diameter / 2
+
+    draw.ellipse(
+        (
+            cx - radius,
+            cy - radius,
+            cx + radius,
+            cy + radius,
+        ),
+        fill=CHECKMARK_BLUE,
+    )
+
+    stroke_width = max(
+        2,
+        round(
+            diameter * 0.12
+        )
+    )
+
+    p1 = (
+        cx - radius * 0.5,
+        cy
+    )
+
+    p2 = (
+        cx - radius * 0.12,
+        cy + radius * 0.4
+    )
+
+    p3 = (
+        cx + radius * 0.55,
+        cy - radius * 0.4
+    )
+
+    draw.line(
+        [p1, p2],
+        fill=(255, 255, 255),
+        width=stroke_width,
+        joint="curve",
+    )
+
+    draw.line(
+        [p2, p3],
+        fill=(255, 255, 255),
+        width=stroke_width,
+        joint="curve",
+    )
+
+
+def build_generated_logo_image(
+    display_name,
+    username,
+    verified,
+    avatar_path,
+    text_rgb,
+    background_rgb,
+):
+
+    has_avatar = (
+        avatar_path is not None
+    )
+
+    has_name = bool(
+        display_name
+    )
+
+    has_username = bool(
+        username
+    )
+
+    if not (
+        has_avatar
+        or
+        has_name
+        or
+        has_username
+    ):
+
+        raise RuntimeError(
+            "Nothing to render for the generated logo: provide at "
+            "least --avatar, --display-name, or --username."
+        )
+
+
+    bold_font = resolve_font(
+        BOLD_FONT_CANDIDATES,
+        NAME_FONT_SIZE,
+    )
+
+    regular_font = resolve_font(
+        REGULAR_FONT_CANDIDATES,
+        USERNAME_FONT_SIZE,
+    )
+
+    measure_draw = ImageDraw.Draw(
+        Image.new(
+            "RGBA",
+            (1, 1)
+        )
+    )
+
+
+    checkmark_diameter = round(
+        NAME_FONT_SIZE
+        *
+        CHECKMARK_DIAMETER_RATIO
+    )
+
+
+    name_bbox = None
+    name_width = 0
+    name_height = 0
+
+    if has_name:
+
+        name_bbox = measure_draw.textbbox(
+            (0, 0),
+            display_name,
+            font=bold_font,
+        )
+
+        name_width = (
+            name_bbox[2]
+            -
+            name_bbox[0]
+        )
+
+        name_height = (
+            name_bbox[3]
+            -
+            name_bbox[1]
+        )
+
+        if verified:
+
+            name_width += (
+                CHECKMARK_GAP
+                +
+                checkmark_diameter
+            )
+
+
+    username_text = None
+    username_bbox = None
+    username_width = 0
+    username_height = 0
+
+    if has_username:
+
+        username_text = (
+            username
+            if username.startswith("@")
+            else f"@{username}"
+        )
+
+        username_bbox = measure_draw.textbbox(
+            (0, 0),
+            username_text,
+            font=regular_font,
+        )
+
+        username_width = (
+            username_bbox[2]
+            -
+            username_bbox[0]
+        )
+
+        username_height = (
+            username_bbox[3]
+            -
+            username_bbox[1]
+        )
+
+
+    text_block_width = max(
+        name_width,
+        username_width,
+    )
+
+    text_block_height = 0
+
+    if has_name:
+
+        text_block_height += name_height
+
+    if has_name and has_username:
+
+        text_block_height += TEXT_LINE_GAP
+
+    if has_username:
+
+        text_block_height += username_height
+
+
+    avatar_block_width = (
+        AVATAR_DIAMETER
+        if has_avatar
+        else 0
+    )
+
+    gap = (
+        AVATAR_TEXT_GAP
+        if has_avatar and (has_name or has_username)
+        else 0
+    )
+
+    content_width = (
+        avatar_block_width
+        +
+        gap
+        +
+        text_block_width
+    )
+
+    content_height = max(
+        avatar_block_width,
+        text_block_height,
+    )
+
+    canvas_width = (
+        content_width
+        +
+        LOGO_PADDING * 2
+    )
+
+    canvas_height = (
+        content_height
+        +
+        LOGO_PADDING * 2
+    )
+
+    canvas = Image.new(
+        "RGBA",
+        (
+            canvas_width,
+            canvas_height
+        ),
+        (0, 0, 0, 0),
+    )
+
+    draw = ImageDraw.Draw(
+        canvas
+    )
+
+    cursor_x = LOGO_PADDING
+
+
+    if has_avatar:
+
+        circular_avatar = crop_avatar_to_circle(
+            avatar_path,
+            AVATAR_DIAMETER,
+        )
+
+        avatar_y = (
+            LOGO_PADDING
+            +
+            (
+                content_height
+                -
+                AVATAR_DIAMETER
+            )
+            //
+            2
+        )
+
+        canvas.paste(
+            circular_avatar,
+            (
+                cursor_x,
+                avatar_y
+            ),
+            circular_avatar,
+        )
+
+        cursor_x += (
+            AVATAR_DIAMETER
+            +
+            gap
+        )
+
+
+    text_y = (
+        LOGO_PADDING
+        +
+        (
+            content_height
+            -
+            text_block_height
+        )
+        //
+        2
+    )
+
+
+    if has_name:
+
+        draw.text(
+            (
+                cursor_x - name_bbox[0],
+                text_y - name_bbox[1],
+            ),
+            display_name,
+            font=bold_font,
+            fill=text_rgb,
+        )
+
+        if verified:
+
+            badge_center_x = (
+                cursor_x
+                +
+                (
+                    name_bbox[2]
+                    -
+                    name_bbox[0]
+                )
+                +
+                CHECKMARK_GAP
+                +
+                checkmark_diameter / 2
+            )
+
+            badge_center_y = (
+                text_y
+                +
+                name_height / 2
+            )
+
+            draw_checkmark_badge(
+                draw,
+                (
+                    badge_center_x,
+                    badge_center_y,
+                ),
+                checkmark_diameter,
+            )
+
+        text_y += (
+            name_height
+            +
+            TEXT_LINE_GAP
+        )
+
+
+    if has_username:
+
+        username_color = tuple(
+
+            round(
+
+                text_rgb[i]
+                +
+                (
+                    background_rgb[i]
+                    -
+                    text_rgb[i]
+                )
+                *
+                USERNAME_BLEND_TOWARD_BACKGROUND
+            )
+
+            for i in range(3)
+        )
+
+        draw.text(
+            (
+                cursor_x - username_bbox[0],
+                text_y - username_bbox[1],
+            ),
+            username_text,
+            font=regular_font,
+            fill=username_color,
+        )
+
+
+    return canvas
 
 
 # ============================================================
@@ -2098,7 +2657,7 @@ def process_video(
 
 def main():
 
-    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, ENCODER_MODE, VIDEO_ENCODER, LOGO_PATH, LOGO_GAP_PX, LOGO_SCALE
+    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, ENCODER_MODE, VIDEO_ENCODER, LOGO_PATH, LOGO_GAP_PX, LOGO_SCALE, AVATAR_PATH, DISPLAY_NAME, USERNAME, VERIFIED_BADGE
 
     parser = argparse.ArgumentParser(
         description="Recolor vertical video templates."
@@ -2171,6 +2730,42 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--avatar",
+        default=AVATAR_PATH,
+        help=(
+            "Path to a profile picture to generate a branding block "
+            "from (center-cropped to a circle). Alternative to --logo; "
+            "cannot be combined with it."
+        ),
+    )
+
+    parser.add_argument(
+        "--display-name",
+        default=DISPLAY_NAME,
+        help="Bold display name for the generated branding block.",
+    )
+
+    parser.add_argument(
+        "--username",
+        default=USERNAME,
+        help=(
+            'Handle for the generated branding block, e.g. "myhandle" '
+            'or "@myhandle".'
+        ),
+    )
+
+    parser.add_argument(
+        "--verified",
+        action=argparse.BooleanOptionalAction,
+        default=VERIFIED_BADGE,
+        help=(
+            "Show a blue verified checkmark next to the display name "
+            "in the generated branding block. Default: on. Use "
+            "--no-verified to turn it off."
+        ),
+    )
+
     args = parser.parse_args()
 
     INPUT_FOLDER = args.input
@@ -2181,6 +2776,18 @@ def main():
     LOGO_PATH = args.logo
     LOGO_GAP_PX = args.logo_gap
     LOGO_SCALE = args.logo_scale
+    AVATAR_PATH = args.avatar
+    DISPLAY_NAME = args.display_name
+    USERNAME = args.username
+    VERIFIED_BADGE = args.verified
+
+    generated_logo_requested = (
+        AVATAR_PATH is not None
+        or
+        DISPLAY_NAME is not None
+        or
+        USERNAME is not None
+    )
 
     if (
         LOGO_PATH is not None
@@ -2194,6 +2801,35 @@ def main():
 
         raise RuntimeError(
             f"Logo file not found: {LOGO_PATH}"
+        )
+
+    if (
+        LOGO_PATH is not None
+
+        and
+
+        generated_logo_requested
+    ):
+
+        raise RuntimeError(
+            "--logo cannot be combined with --avatar/--display-name/"
+            "--username. Use --logo for a ready-made image, or the "
+            "--avatar/--display-name/--username/--verified options to "
+            "generate one."
+        )
+
+    if (
+        AVATAR_PATH is not None
+
+        and
+
+        not os.path.isfile(
+            AVATAR_PATH
+        )
+    ):
+
+        raise RuntimeError(
+            f"Avatar file not found: {AVATAR_PATH}"
         )
 
     TEMPLATE_FOLDER = os.path.join(
@@ -2224,6 +2860,27 @@ def main():
     text_rgb = get_text_rgb(
         background_rgb
     )
+
+
+    if generated_logo_requested:
+
+        generated_logo_image = build_generated_logo_image(
+            DISPLAY_NAME,
+            USERNAME,
+            VERIFIED_BADGE,
+            AVATAR_PATH,
+            text_rgb,
+            background_rgb,
+        )
+
+        LOGO_PATH = os.path.join(
+            TEMPLATE_FOLDER,
+            "_generated_logo.png",
+        )
+
+        generated_logo_image.save(
+            LOGO_PATH
+        )
 
 
     print()
@@ -2294,7 +2951,27 @@ def main():
     )
 
 
-    if LOGO_PATH is not None:
+    if generated_logo_requested:
+
+        print(
+            "Logo: generated "
+            f"(avatar={AVATAR_PATH}, "
+            f"name={DISPLAY_NAME!r}, "
+            f"username={USERNAME!r}, "
+            f"verified={VERIFIED_BADGE})"
+        )
+
+        print(
+            f"Logo gap: "
+            f"{LOGO_GAP_PX}px"
+        )
+
+        print(
+            f"Logo scale: "
+            f"{LOGO_SCALE}"
+        )
+
+    elif LOGO_PATH is not None:
 
         print(
             f"Logo: "
@@ -2450,6 +3127,23 @@ def main():
             print(
                 "-" * 72
             )
+
+
+    if generated_logo_requested:
+
+        try:
+
+            if os.path.isfile(
+                LOGO_PATH
+            ):
+
+                os.remove(
+                    LOGO_PATH
+                )
+
+        except Exception:
+
+            pass
 
 
     try:
