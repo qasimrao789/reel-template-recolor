@@ -86,6 +86,7 @@ class App(ctk.CTk):
 
         self.preview_generation = 0
         self.debounce_job = None
+        self.folder_scan_job = None
         self.current_ctk_image = None
 
         self.batch_process = None
@@ -403,6 +404,11 @@ class App(ctk.CTk):
 
         self.input_var = tk.StringVar()
 
+        self.input_var.trace_add(
+            "write",
+            lambda *_args: self._request_folder_scan(),
+        )
+
         self._path_row(
             parent,
             "Input folder",
@@ -644,6 +650,7 @@ class App(ctk.CTk):
         ctk.CTkEntry(
             self.logo_generated_frame,
             textvariable=self.display_name_var,
+            placeholder_text="e.g. QasimRao",
         ).pack(
             fill="x",
             padx=6,
@@ -664,6 +671,7 @@ class App(ctk.CTk):
         ctk.CTkEntry(
             self.logo_generated_frame,
             textvariable=self.username_var,
+            placeholder_text="e.g. Quziii",
         ).pack(
             fill="x",
             padx=6,
@@ -988,11 +996,11 @@ class App(ctk.CTk):
 
         if chosen:
 
+            # Setting the var fires the trace on input_var,
+            # which schedules a folder scan on its own.
             self.input_var.set(
                 chosen
             )
-
-            self._on_input_folder_changed()
 
 
     def _browse_output(self):
@@ -1136,7 +1144,27 @@ class App(ctk.CTk):
     # VIDEO LIST
     # ============================================================
 
+    def _request_folder_scan(self):
+
+        # Debounced so pasting/typing a path doesn't rescan the
+        # folder (and hit ffprobe/ffmpeg for the preview) on every
+        # single keystroke.
+
+        if self.folder_scan_job is not None:
+
+            self.after_cancel(
+                self.folder_scan_job
+            )
+
+        self.folder_scan_job = self.after(
+            DEBOUNCE_MS,
+            self._on_input_folder_changed,
+        )
+
+
     def _on_input_folder_changed(self):
+
+        self.folder_scan_job = None
 
         folder = self.input_var.get()
 
