@@ -267,7 +267,8 @@ def trim_dark_horizontal_borders(
     gray,
     top_y,
     bottom_y,
-    width
+    width,
+    gray_b=None
 ):
 
     # Assumes the embedded video spans the full width within its
@@ -276,12 +277,46 @@ def trim_dark_horizontal_borders(
     # detectors so a plain/pale part of the actual video is never
     # excluded just for not being "content" or not showing motion
     # within a short sample window.
+    #
+    # When a second frame (gray_b) is available, a column only
+    # counts as a border if it's dark in BOTH frames. A genuine
+    # pillarbox stays black the whole video; real video content
+    # that's merely dark at one sampled instant (a shadow, dark
+    # hair/clothing momentarily at the edge) almost certainly
+    # isn't dark at the other sampled instant too, so requiring
+    # both avoids wrongly trimming it.
 
-    picture_region_gray = gray[
-        top_y:
-        bottom_y + 1,
-        :
-    ]
+    def is_dark_column(gray_frame, xx):
+
+        return (
+
+            gray_frame[
+                top_y:
+                bottom_y + 1,
+                xx
+            ]
+            <
+            35
+
+        ).mean() > 0.88
+
+
+    def is_border_column(xx):
+
+        if not is_dark_column(gray, xx):
+
+            return False
+
+
+        if gray_b is not None:
+
+            return is_dark_column(
+                gray_b,
+                xx
+            )
+
+
+        return True
 
 
     left_x = 0
@@ -292,14 +327,9 @@ def trim_dark_horizontal_borders(
 
         and
 
-        (
-            picture_region_gray[
-                :,
-                left_x
-            ]
-            <
-            35
-        ).mean() > 0.88
+        is_border_column(
+            left_x
+        )
     ):
 
         left_x += 1
@@ -313,14 +343,9 @@ def trim_dark_horizontal_borders(
 
         and
 
-        (
-            picture_region_gray[
-                :,
-                right_x
-            ]
-            <
-            35
-        ).mean() > 0.88
+        is_border_column(
+            right_x
+        )
     ):
 
         right_x -= 1
@@ -908,16 +933,22 @@ def detect_picture_area_from_motion(
     # within the vertical band that motion already located.
     # ========================================================
 
-    gray = cv2.cvtColor(
+    gray_a = cv2.cvtColor(
         frame_a_rgb,
         cv2.COLOR_RGB2GRAY
     )
 
+    gray_b = cv2.cvtColor(
+        frame_b_rgb,
+        cv2.COLOR_RGB2GRAY
+    )
+
     left_x, right_x = trim_dark_horizontal_borders(
-        gray,
+        gray_a,
         top_y,
         bottom_y,
         width,
+        gray_b=gray_b,
     )
 
 
