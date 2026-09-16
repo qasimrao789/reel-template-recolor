@@ -91,6 +91,7 @@ Final MP4
 
 ## Features
 
+* Desktop GUI (`python gui.py`) with a live pre-batch preview and interactive logo sizing, alongside the CLI
 * Whole-folder batch processing
 * Custom input folder with `--input`
 * Custom output folder with `--output`
@@ -221,6 +222,27 @@ Linux/macOS:
 ```bash
 ffmpeg -encoders | grep -E "nvenc|libx264"
 ```
+
+## GUI
+
+A desktop GUI is available as an alternative to the command line:
+
+```bash
+python gui.py
+```
+
+It's a front-end for the exact same `reel_recolor.py` — starting a batch from the GUI runs the identical CLI command in the background, so behavior never diverges between the two.
+
+Features:
+
+* Live preview of the recolored template + logo, rendered from a real reference frame of a selected input video, with no video encoding involved
+* A dropdown to preview any video in the chosen input folder
+* Background/text color pickers
+* Encoder mode selection
+* Logo mode: none, a supplied logo file, or a generated branding block (avatar/name/username/verified), matching the CLI's `--logo` vs `--avatar`/`--display-name`/`--username`/`--verified` options
+* Sliders for logo gap and logo scale that re-render the preview live, so the right size/spacing can be dialed in visually instead of guessing `--logo-scale` values and re-running the CLI
+* A log panel showing the same per-video output the CLI prints, with Start/Stop controls for the batch run
+* Settings (folders, colors, logo config) are remembered between runs in `gui_settings.json` (not committed to the repository)
 
 ## Basic Usage
 
@@ -900,6 +922,8 @@ reel-template-recolor/
 │   └── after.jpg
 │
 ├── reel_recolor.py
+├── gui.py
+├── preview.py
 ├── requirements.txt
 ├── .gitignore
 ├── LICENSE
@@ -926,6 +950,8 @@ This helps catch syntax errors before changes are merged.
 * Python
 * OpenCV
 * NumPy
+* Pillow
+* CustomTkinter
 * FFmpeg
 * ffprobe
 * NVIDIA NVENC
