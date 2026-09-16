@@ -609,17 +609,20 @@ LOGO_GAP_PX = 40
 
 ### Logo Scale
 
-Use `--logo-scale` to control the logo's width as a fraction of the detected movie/picture region's width. The default is `1.0`, meaning the logo is scaled to exactly match that width.
+Use `--logo-scale` to control the logo's width as a fraction of the detected movie/picture region's width.
 
 ```bash
 python reel_recolor.py --logo "D:\Branding\logo.png" --logo-scale 0.75
 ```
 
-The default is:
+The default depends on which kind of logo is used:
 
 ```python
-LOGO_SCALE = 1.0
+RAW_LOGO_SCALE_DEFAULT = 1.0        # a supplied --logo image
+GENERATED_LOGO_SCALE_DEFAULT = 0.6  # a generated branding block
 ```
+
+A supplied `--logo` image defaults to filling the full detected frame width, since it's assumed to already be sized/designed the way you want. A generated branding block defaults to a smaller `0.6` so the avatar and text land at a normal social-media byline size instead of being stretched edge-to-edge across the frame. Either can be overridden with `--logo-scale`.
 
 ### Logo Output Naming
 

@@ -44,14 +44,23 @@ LOGO_GAP_PX = 40
 
 # Logo width as a fraction of the detected frame's width.
 # Height is auto-scaled to preserve the logo's aspect ratio.
-LOGO_SCALE = 1.0
+# None = pick a mode-appropriate default at runtime:
+# RAW_LOGO_SCALE_DEFAULT for a supplied --logo image,
+# GENERATED_LOGO_SCALE_DEFAULT for a generated branding block.
+LOGO_SCALE = None
+
+RAW_LOGO_SCALE_DEFAULT = 1.0
+GENERATED_LOGO_SCALE_DEFAULT = 0.6
 
 # ------------------------------------------------------------
 # Generated branding block (avatar + name + checkmark + handle).
 # Alternative to a ready-made LOGO_PATH image; set via
 # --avatar / --display-name / --username / --verified.
 # Rendered once at this internal resolution, then scaled down
-# to the detected frame width like any other logo.
+# to the detected frame width like any other logo. Sized so
+# that, combined with GENERATED_LOGO_SCALE_DEFAULT, the result
+# lands close to a normal social-media byline instead of being
+# blown up to fill the whole frame width.
 # ------------------------------------------------------------
 
 AVATAR_PATH = None
@@ -59,16 +68,16 @@ DISPLAY_NAME = None
 USERNAME = None
 VERIFIED_BADGE = True
 
-AVATAR_DIAMETER = 240
-LOGO_PADDING = 20
-AVATAR_TEXT_GAP = 28
+AVATAR_DIAMETER = 160
+LOGO_PADDING = 18
+AVATAR_TEXT_GAP = 24
 
-NAME_FONT_SIZE = 64
-USERNAME_FONT_SIZE = 50
-TEXT_LINE_GAP = 10
+NAME_FONT_SIZE = 60
+USERNAME_FONT_SIZE = 44
+TEXT_LINE_GAP = 8
 
-CHECKMARK_GAP = 14
-CHECKMARK_DIAMETER_RATIO = 0.8
+CHECKMARK_GAP = 12
+CHECKMARK_DIAMETER_RATIO = 0.75
 
 USERNAME_BLEND_TOWARD_BACKGROUND = 0.55
 
@@ -2726,7 +2735,10 @@ def main():
         default=LOGO_SCALE,
         help=(
             "Logo width as a fraction of the detected frame's width. "
-            "Height is scaled to preserve aspect ratio. Default: 1.0"
+            "Height is scaled to preserve aspect ratio. Default: "
+            f"{RAW_LOGO_SCALE_DEFAULT} for a supplied --logo image, "
+            f"{GENERATED_LOGO_SCALE_DEFAULT} for a generated branding "
+            "block."
         ),
     )
 
@@ -2788,6 +2800,14 @@ def main():
         or
         USERNAME is not None
     )
+
+    if LOGO_SCALE is None:
+
+        LOGO_SCALE = (
+            GENERATED_LOGO_SCALE_DEFAULT
+            if generated_logo_requested
+            else RAW_LOGO_SCALE_DEFAULT
+        )
 
     if (
         LOGO_PATH is not None
