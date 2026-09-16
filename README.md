@@ -825,6 +825,19 @@ Pixels that appear sufficiently colorful are preserved from the original referen
 
 OpenCV dilation and erosion are used to clean the preservation mask.
 
+## Black/White Snapping
+
+A template's "black" background is rarely pure `#000000` — compression, shadows, or a slight color cast can leave it a few shades off (for example a dark reddish-brown instead of black). Inverting that exact off-black shade produces a visibly tinted patch (for example pale blue) instead of matching the rest of the recolored background, which inverts cleanly from true black to true white.
+
+Before recoloring, pixels already close to black or white are snapped to the exact value:
+
+```python
+BLACK_SNAP_THRESHOLD = 40
+WHITE_SNAP_THRESHOLD = 215
+```
+
+A pixel whose brightest channel is below `BLACK_SNAP_THRESHOLD` is treated as pure black; a pixel whose darkest channel is above `WHITE_SNAP_THRESHOLD` is treated as pure white. This only affects the recolor step — the original, unsnapped pixel values are still used for [color/emoji preservation](#color-preservation) and for restoring the movie rectangle.
+
 ## Performance Approach
 
 The main optimization is avoiding a Python per-frame processing loop.

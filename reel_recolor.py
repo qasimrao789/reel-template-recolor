@@ -130,6 +130,13 @@ MOTION_ROW_THRESHOLD = 0.04
 COLOR_PRESERVE_THRESHOLD = 22
 COLOR_MIN_BRIGHTNESS = 55
 
+# Pixels darker/lighter than these (max/min channel) are snapped
+# to pure black/white before recoloring, so a slightly-off-black
+# template background (shadow, compression, color cast) inverts
+# cleanly instead of producing a visibly tinted patch.
+BLACK_SNAP_THRESHOLD = 40
+WHITE_SNAP_THRESHOLD = 215
+
 EMOJI_MASK_DILATE_PASSES = 2
 EMOJI_MASK_ERODE_PASSES = 3
 
@@ -1883,6 +1890,49 @@ def build_static_template(
 
 
     # ========================================================
+    # SNAP NEAR-BLACK / NEAR-WHITE BEFORE RECOLORING
+    #
+    # A template's "black" background is rarely pure (0,0,0) —
+    # compression, shadows, or a slight color cast can leave it
+    # a few shades off (e.g. dark reddish-brown instead of
+    # black). Inverting that exact off-black shade produces a
+    # visibly tinted patch (e.g. pale blue) instead of matching
+    # the rest of the recolored background, which inverts from
+    # true black to true white. Snapping anything already close
+    # to black/white to the exact value first avoids that seam.
+    # The ORIGINAL reference_rgb (not this snapped copy) is
+    # still used below for color/emoji preservation and for
+    # restoring the movie rectangle.
+    # ========================================================
+
+    recolor_source = reference_rgb.copy()
+
+    near_black = (
+        recolor_source.max(axis=2)
+        <
+        BLACK_SNAP_THRESHOLD
+    )
+
+    recolor_source[near_black] = (
+        0,
+        0,
+        0,
+    )
+
+    near_white = (
+        recolor_source.min(axis=2)
+        >
+        WHITE_SNAP_THRESHOLD
+    )
+
+    recolor_source[near_white] = (
+        255,
+        255,
+        255,
+    )
+
+
+    # ========================================================
     # RECOLOR
     # ========================================================
 
@@ -1907,7 +1957,7 @@ def build_static_template(
     ):
 
         changed = (
-            255 - reference_rgb
+            255 - recolor_source
         )
 
 
@@ -1932,7 +1982,7 @@ def build_static_template(
     ):
 
         changed = (
-            reference_rgb.copy()
+            recolor_source.copy()
         )
 
 
@@ -1966,7 +2016,7 @@ def build_static_template(
 
         values = (
 
-            reference_rgb.astype(
+            recolor_source.astype(
                 np.float32
             )
 
