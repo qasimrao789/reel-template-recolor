@@ -871,127 +871,66 @@ def detect_picture_area_from_frame(
 
     # ========================================================
     # HORIZONTAL
+    #
+    # Unlike the vertical position (which varies a lot between
+    # templates and has to be found by looking for content),
+    # the embedded video almost always spans the full frame
+    # width within its row band. Requiring "colorful content"
+    # to justify each column wrongly excludes plain/pale parts
+    # of the actual video (e.g. a light background) near the
+    # edges, leaving them frozen and mis-colored. So default to
+    # the full width and only pull inward where there really is
+    # a solid dark pillarbox border, the same way the vertical
+    # bounds are trimmed above.
     # ========================================================
 
-    picture_region = content_pixels[
+    picture_region_gray = gray[
         top_y:
         bottom_y + 1,
         :
     ]
 
 
-    col_score = picture_region.mean(
-        axis=0
-    )
+    left_x = 0
 
+    while (
 
-    smooth_col_score = np.convolve(
+        left_x < width
 
-        col_score,
+        and
 
-        np.ones(15)
-        /
-        15,
-
-        mode="same"
-    )
-
-
-    col_segments = find_segments(
-        smooth_col_score > 0.08
-    )
-
-
-    meaningful_cols = [
-
-        seg
-
-        for seg in col_segments
-
-        if (
-            seg[1]
-            -
-            seg[0]
-        )
-        >
-        width * 0.20
-    ]
-
-
-    if not meaningful_cols:
-
-        meaningful_cols = (
-            col_segments
-        )
-
-
-    if not meaningful_cols:
-
-        raise RuntimeError(
-            "No horizontal movie/picture area found"
-        )
-
-
-    core_left, core_right = max(
-
-        meaningful_cols,
-
-        key=lambda seg:
-        seg[1] - seg[0],
-    )
-
-
-    left_x = core_left
-
-
-    for xx in range(
-        core_left,
-        0,
-        -1
+        (
+            picture_region_gray[
+                :,
+                left_x
+            ]
+            <
+            35
+        ).mean() > 0.88
     ):
 
-        col = gray[
-            top_y:
-            bottom_y + 1,
-            xx
-        ]
+        left_x += 1
 
 
-        if (
-            col < 35
-        ).mean() > 0.88:
+    right_x = width - 1
 
-            left_x = (
-                xx + 1
-            )
+    while (
 
-            break
+        right_x > left_x
 
+        and
 
-    right_x = core_right
-
-
-    for xx in range(
-        core_right,
-        width - 1
+        (
+            picture_region_gray[
+                :,
+                right_x
+            ]
+            <
+            35
+        ).mean() > 0.88
     ):
 
-        col = gray[
-            top_y:
-            bottom_y + 1,
-            xx
-        ]
-
-
-        if (
-            col < 35
-        ).mean() > 0.88:
-
-            right_x = (
-                xx - 1
-            )
-
-            break
+        right_x -= 1
 
 
     picture_width = (

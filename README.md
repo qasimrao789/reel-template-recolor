@@ -788,9 +788,12 @@ OpenCV examines properties including:
 
 * Brightness
 * Saturation
-* Horizontal content distribution
 * Vertical content distribution
 * Dark separator/border regions
+
+The vertical position of the embedded video is found by looking for a band of "colorful content" (brightness/saturation), since it varies a lot between templates (caption length, footer height, etc.).
+
+The horizontal extent is handled differently: within that vertical band, the embedded video is assumed to span the full frame width by default, and is only narrowed inward where there is a genuine solid dark pillarbox border on either side. This avoids misclassifying plain or pale parts of the actual video (for example a light-colored background) as "not content" and excluding them from the crop.
 
 The detected rectangle is treated as the dynamic part of the template.
 
