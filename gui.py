@@ -44,8 +44,8 @@ LOGO_MODE_FILE = "Logo File"
 LOGO_MODE_GENERATED = "Generated"
 
 DEFAULT_SETTINGS = {
-    "input_folder": "input_videos",
-    "output_folder": "output_videos",
+    "input_folder": os.path.join(SCRIPT_DIR, "input_videos"),
+    "output_folder": os.path.join(SCRIPT_DIR, "output_videos"),
     "encoder": "auto",
     "bg_color": "#FFFFFF",
     "text_color_auto": True,

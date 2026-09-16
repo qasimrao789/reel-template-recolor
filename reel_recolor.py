@@ -21,8 +21,27 @@ from PIL import (
 # SETTINGS
 # ============================================================
 
-INPUT_FOLDER = "input_videos"
-OUTPUT_FOLDER = "output_videos"
+# Default input/output folders resolve relative to this script's
+# own location, not the current working directory. Otherwise,
+# running the script from a different folder (a different
+# terminal cwd, a shortcut, etc.) silently points at different
+# "input_videos"/"output_videos" folders each time, which looks
+# exactly like lost progress/resume not working, when nothing was
+# actually lost. --input/--output override these defaults
+# entirely and are used exactly as given, relative or absolute.
+SCRIPT_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
+INPUT_FOLDER = os.path.join(
+    SCRIPT_DIR,
+    "input_videos"
+)
+
+OUTPUT_FOLDER = os.path.join(
+    SCRIPT_DIR,
+    "output_videos"
+)
 
 # Any #RRGGBB color works.
 TARGET_COLOR = "#FFFFFF"
@@ -180,9 +199,14 @@ VIDEO_ENCODER = None
 
 SKIP_EXISTING_OUTPUTS = True
 
-# Keep this suffix unchanged so previously completed videos are skipped.
-OUTPUT_SUFFIX = "_recolored_cuda_1080x1920_cropfill.mp4"
-CPU_OUTPUT_SUFFIX = "_recolored_cpu_1080x1920_cropfill.mp4"
+# Output filenames match the input filename exactly (e.g.
+# "1.mp4" -> "1.mp4"), just in a different folder. This is also
+# what SKIP_EXISTING_OUTPUTS/resume keys off of - re-running with
+# different settings (encoder, logo, color) reuses the same output
+# filename rather than producing a differently-suffixed one, so
+# clear the output folder (or use a different one) to force a
+# redo with new settings.
+OUTPUT_EXTENSION = ".mp4"
 
 # Fast scaling before template/video processing.
 SCALE_FLAGS = "bilinear"
@@ -2691,35 +2715,6 @@ def encode_with_static_template(
 
 
 # ============================================================
-# OUTPUT NAME
-# ============================================================
-
-def get_output_suffix():
-
-    if VIDEO_ENCODER == "libx264":
-
-        suffix = CPU_OUTPUT_SUFFIX
-
-    else:
-
-        suffix = OUTPUT_SUFFIX
-
-
-    if LOGO_PATH is not None:
-
-        base, ext = os.path.splitext(
-            suffix
-        )
-
-        suffix = (
-            f"{base}_logo{ext}"
-        )
-
-
-    return suffix
-
-
-# ============================================================
 # PROCESS ONE VIDEO
 # ============================================================
 
@@ -2741,7 +2736,7 @@ def process_video(
 
         OUTPUT_FOLDER,
 
-        f"{name}{get_output_suffix()}",
+        f"{name}{OUTPUT_EXTENSION}",
     )
 
 

@@ -496,21 +496,13 @@ Video encoder: libx264
 NVIDIA NVENC not available; using CPU encoding.
 ```
 
-## GPU vs CPU Output Names
+## Output Naming and Resuming
 
-GPU-encoded files use a suffix containing:
+An output file has the exact same name as its input file (e.g. `1.mp4` → `1.mp4`, just in the output folder instead of the input folder) — the encoder used, colors, and logo settings don't change the filename.
 
-```text
-_recolored_cuda_
-```
+This is also how resuming an interrupted batch works: rerunning the same command skips any output that already exists and passes the [existing-output validation](#existing-output-detection) below, and only processes what's missing or incomplete — including a video whose output was left truncated by closing the tool mid-encode.
 
-CPU-encoded files use:
-
-```text
-_recolored_cpu_
-```
-
-This makes it easy to identify which encoder produced an output.
+Because the filename doesn't encode which settings produced it, changing `--color`, `--encoder`, or the logo options between runs won't by itself trigger a redo of videos that already have an output — clear the output folder (or use a different one with `--output`) to force everything to be reprocessed with new settings.
 
 ## Change the Background Color
 
@@ -643,10 +635,6 @@ GENERATED_LOGO_SCALE_DEFAULT = 0.75  # a generated branding block
 
 A supplied `--logo` image defaults to filling the full detected frame width, since it's assumed to already be sized/designed the way you want. A generated branding block defaults to a smaller `0.75` so the avatar and text land at a normal social-media byline size instead of being stretched edge-to-edge across the frame. Either can be overridden with `--logo-scale`. Whenever the logo is narrower than the frame, it is centered within the frame's width rather than left-aligned.
 
-### Logo Output Naming
-
-Outputs produced with `--logo` (or a generated logo, see below) get an additional `_logo` marker in the filename, so they are distinct from outputs produced without a logo and are not skipped by the [existing-output detection](#existing-output-detection) as already complete.
-
 ## Generated Branding Block
 
 Instead of hand-making a logo image, the tool can generate a "profile header" style graphic — a circular avatar, bold display name, optional blue verified checkmark, and `@handle` — directly from simple, editable inputs. It is positioned, scaled, and colored the same way as a manual `--logo` image (see above), and the two are mutually exclusive: use one or the other, not both.
@@ -721,14 +709,16 @@ Command-line arguments override the defaults for the current run.
 ### Default Input Folder
 
 ```python
-INPUT_FOLDER = "input_videos"
+INPUT_FOLDER = "input_videos"  # resolved next to the script itself
 ```
 
 ### Default Output Folder
 
 ```python
-OUTPUT_FOLDER = "output_videos"
+OUTPUT_FOLDER = "output_videos"  # resolved next to the script itself
 ```
+
+Both defaults resolve relative to the script's own location, not the current working directory — running `python reel_recolor.py` from a different folder still finds the same `input_videos`/`output_videos` next to the script, instead of silently looking for (and finding nothing in) folders with those names wherever the command happened to be run from. `--input`/`--output` override these defaults and are used exactly as given, relative or absolute.
 
 ### Default Encoder Mode
 
