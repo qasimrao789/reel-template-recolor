@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import colorchooser, filedialog
 
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageTk
 
 from preview import render_preview_frame
 
@@ -87,7 +87,6 @@ class App(ctk.CTk):
         self.preview_generation = 0
         self.debounce_job = None
         self.folder_scan_job = None
-        self.current_ctk_image = None
 
         self.batch_process = None
         self.batch_thread = None
@@ -272,15 +271,27 @@ class App(ctk.CTk):
             False
         )
 
-        self.preview_image_label = ctk.CTkLabel(
+        # A plain tk.Label + ImageTk.PhotoImage instead of
+        # CTkImage/CTkLabel: CTkImage's internal image handling
+        # is not reliable across repeated swaps on every Python
+        # version (observed "image ... does not exist" errors on
+        # Python 3.14), whereas this combination is a
+        # long-standing stable Tkinter pattern.
+        self.preview_image_label = tk.Label(
             image_container,
             text="Pick an input folder\nto see a preview",
-            font=ctk.CTkFont(size=13),
+            font=("Segoe UI", 11),
+            bg="#242424",
+            fg="white",
+            wraplength=PREVIEW_DISPLAY_SIZE[0],
+            justify="center",
         )
 
         self.preview_image_label.pack(
             expand=True
         )
+
+        self.current_photo_image = None
 
         self.preview_video_menu = ctk.CTkOptionMenu(
             frame,
@@ -1356,16 +1367,18 @@ class App(ctk.CTk):
             Image.Resampling.LANCZOS,
         )
 
-        ctk_image = ctk.CTkImage(
-            light_image=image,
-            dark_image=image,
-            size=image.size,
+        photo_image = ImageTk.PhotoImage(
+            image
         )
 
-        self.current_ctk_image = ctk_image
+        # Keep a strong reference for as long as it's displayed -
+        # Tkinter doesn't retain one on its own, and if this were
+        # only a local variable it would get garbage collected
+        # right after this call, leaving a blank/broken image.
+        self.current_photo_image = photo_image
 
         self.preview_image_label.configure(
-            image=ctk_image,
+            image=photo_image,
             text="",
         )
 
@@ -1415,8 +1428,10 @@ class App(ctk.CTk):
 
                     else:
 
+                        self.current_photo_image = None
+
                         self.preview_image_label.configure(
-                            image=None,
+                            image="",
                             text="Preview unavailable",
                         )
 
