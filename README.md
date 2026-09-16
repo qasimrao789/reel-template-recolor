@@ -584,8 +584,8 @@ If `--logo` is omitted, no logo is added and behavior is unchanged.
 Every video's embedded movie/picture region is detected independently, so its position and size differ from video to video. The logo is positioned relative to that detected region instead of a fixed pixel location:
 
 * The logo's **top edge** is placed below the **bottom edge** of the detected movie/picture region.
-* The logo is **left-aligned** with the **left edge** of the detected movie/picture region.
-* The logo is **scaled to the width** of the detected movie/picture region, with its height scaled proportionally to preserve its own aspect ratio.
+* The logo is **horizontally centered** within the **width** of the detected movie/picture region.
+* The logo is **scaled to the width** of the detected movie/picture region (or a fraction of it, see `--logo-scale`), with its height scaled proportionally to preserve its own aspect ratio.
 
 This means the same `--logo` image is repositioned and rescaled automatically for each video, based on that video's own detected frame.
 
@@ -618,11 +618,11 @@ python reel_recolor.py --logo "D:\Branding\logo.png" --logo-scale 0.75
 The default depends on which kind of logo is used:
 
 ```python
-RAW_LOGO_SCALE_DEFAULT = 1.0        # a supplied --logo image
-GENERATED_LOGO_SCALE_DEFAULT = 0.6  # a generated branding block
+RAW_LOGO_SCALE_DEFAULT = 1.0         # a supplied --logo image
+GENERATED_LOGO_SCALE_DEFAULT = 0.75  # a generated branding block
 ```
 
-A supplied `--logo` image defaults to filling the full detected frame width, since it's assumed to already be sized/designed the way you want. A generated branding block defaults to a smaller `0.6` so the avatar and text land at a normal social-media byline size instead of being stretched edge-to-edge across the frame. Either can be overridden with `--logo-scale`.
+A supplied `--logo` image defaults to filling the full detected frame width, since it's assumed to already be sized/designed the way you want. A generated branding block defaults to a smaller `0.75` so the avatar and text land at a normal social-media byline size instead of being stretched edge-to-edge across the frame. Either can be overridden with `--logo-scale`. Whenever the logo is narrower than the frame, it is centered within the frame's width rather than left-aligned.
 
 ### Logo Output Naming
 

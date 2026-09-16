@@ -50,7 +50,7 @@ LOGO_GAP_PX = 40
 LOGO_SCALE = None
 
 RAW_LOGO_SCALE_DEFAULT = 1.0
-GENERATED_LOGO_SCALE_DEFAULT = 0.6
+GENERATED_LOGO_SCALE_DEFAULT = 0.75
 
 # ------------------------------------------------------------
 # Generated branding block (avatar + name + checkmark + handle).
@@ -1043,8 +1043,6 @@ def compute_logo_geometry(
     picture_height,
 ):
 
-    logo_x = x
-
     logo_y = (
         y
         +
@@ -1066,6 +1064,20 @@ def compute_logo_geometry(
     logo_width = max(
         2,
         logo_width
+    )
+
+    # Centered within the detected frame's width, not the full
+    # canvas, so it stays aligned with the frame in every video.
+    logo_x = (
+        x
+        +
+        (
+            picture_width
+            -
+            logo_width
+        )
+        //
+        2
     )
 
     return (
