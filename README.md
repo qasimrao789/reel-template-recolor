@@ -854,11 +854,15 @@ A template's "black" background is rarely pure `#000000` — compression, shadow
 Before recoloring, pixels already close to black or white are snapped to the exact value:
 
 ```python
-BLACK_SNAP_THRESHOLD = 40
+BLACK_SNAP_THRESHOLD = COLOR_MIN_BRIGHTNESS  # 55
 WHITE_SNAP_THRESHOLD = 215
 ```
 
 A pixel whose brightest channel is below `BLACK_SNAP_THRESHOLD` is treated as pure black; a pixel whose darkest channel is above `WHITE_SNAP_THRESHOLD` is treated as pure white. This only affects the recolor step — the original, unsnapped pixel values are still used for [color/emoji preservation](#color-preservation) and for restoring the movie rectangle.
+
+`BLACK_SNAP_THRESHOLD` deliberately matches `COLOR_MIN_BRIGHTNESS` so there's no gap in between: a pixel is either dark enough to snap to black, or bright enough to be a color-preservation candidate, never neither. A gap there previously let a shadow/watermark in the 40–55 brightness range fall through as a partially-inverted "ghost" color instead of clean white.
+
+Color/emoji preservation is also suppressed near the detected movie rectangle's edges (`EDGE_BLEED_MARGIN_PX`, directly above/below; the full remaining width, left/right — see [Color Preservation](#color-preservation)), since a colorful fragment that close to the boundary is almost always bleed-through from the live video rather than a genuine static emoji/logo elsewhere in the template.
 
 ## Performance Approach
 

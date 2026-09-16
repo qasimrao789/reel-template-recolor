@@ -143,9 +143,21 @@ BORDER_DARK_FRACTION = 0.99
 # Pixels darker/lighter than these (max/min channel) are snapped
 # to pure black/white before recoloring, so a slightly-off-black
 # template background (shadow, compression, color cast) inverts
-# cleanly instead of producing a visibly tinted patch.
-BLACK_SNAP_THRESHOLD = 40
+# cleanly instead of producing a visibly tinted patch. Matches
+# COLOR_MIN_BRIGHTNESS so there's no gap in between: a pixel is
+# either dark enough to snap to black, or bright enough to be a
+# color-preservation candidate, never neither (which otherwise
+# produced a washed-out, partially-inverted "ghost" color).
+BLACK_SNAP_THRESHOLD = COLOR_MIN_BRIGHTNESS
 WHITE_SNAP_THRESHOLD = 215
+
+# Color/emoji preservation is disabled within this many pixels
+# directly above/below the detected movie rectangle (left/right
+# use the full remaining width instead - see build_static_template).
+# A watermark baked into the source video can bleed a few pixels
+# past the detected top/bottom edge; a real caption/footer emoji is
+# normally much further away than this margin.
+EDGE_BLEED_MARGIN_PX = 30
 
 EMOJI_MASK_DILATE_PASSES = 2
 EMOJI_MASK_ERODE_PASSES = 3
@@ -2200,6 +2212,39 @@ def build_static_template(
 
         x + picture_width:
         OUTPUT_WIDTH
+    ] = False
+
+
+    # A thin margin directly above/below the rectangle is
+    # suppressed too (not the full remaining height, unlike
+    # left/right) - a caption/footer emoji is normally well clear
+    # of the video, but a watermark baked into the video itself
+    # can bleed a few pixels past the detected top/bottom edge.
+
+    top_margin_y1 = max(
+        0,
+        y - EDGE_BLEED_MARGIN_PX
+    )
+
+    bottom_margin_y2 = min(
+        OUTPUT_HEIGHT,
+        y + picture_height + EDGE_BLEED_MARGIN_PX
+    )
+
+    preserve[
+        top_margin_y1:
+        y,
+
+        x:
+        x + picture_width
+    ] = False
+
+    preserve[
+        y + picture_height:
+        bottom_margin_y2,
+
+        x:
+        x + picture_width
     ] = False
 
 

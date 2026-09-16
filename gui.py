@@ -499,47 +499,24 @@ class App(ctk.CTk):
         self.bg_color_hex = "#FFFFFF"
         self.text_color_hex = "#000000"
 
-        bg_row = ctk.CTkFrame(
-            parent,
-            fg_color="transparent",
-        )
-
-        bg_row.pack(
-            fill="x",
-            padx=6,
-            pady=(2, 6),
-        )
-
         ctk.CTkLabel(
-            bg_row,
-            text="Background",
-        ).pack(
-            side="left",
-        )
-
-        self.bg_color_swatch = ctk.CTkButton(
-            bg_row,
-            text=self.bg_color_hex,
-            fg_color=self.bg_color_hex,
-            text_color="black",
-            hover=False,
-            width=120,
-            command=self._pick_bg_color,
-        )
-
-        self.bg_color_swatch.pack(
-            side="right",
-        )
-
-        text_row = ctk.CTkFrame(
             parent,
-            fg_color="transparent",
+            text="Background",
+            font=ctk.CTkFont(size=12),
+        ).pack(
+            anchor="w",
+            padx=6,
         )
 
-        text_row.pack(
-            fill="x",
-            padx=6,
-            pady=(2, 6),
+        self.bg_color_var = tk.StringVar(
+            value=self.bg_color_hex
+        )
+
+        self.bg_color_swatch = self._color_row(
+            parent,
+            self.bg_color_var,
+            self._on_bg_hex_committed,
+            self._pick_bg_color,
         )
 
         self.text_color_auto_var = tk.BooleanVar(
@@ -547,28 +524,195 @@ class App(ctk.CTk):
         )
 
         ctk.CTkCheckBox(
-            text_row,
+            parent,
             text="Auto text color (opposite of background)",
             variable=self.text_color_auto_var,
             command=self._on_text_color_auto_toggle,
         ).pack(
-            side="left",
+            anchor="w",
+            padx=6,
+            pady=(10, 2),
         )
 
-        self.text_color_swatch = ctk.CTkButton(
-            text_row,
-            text=self.text_color_hex,
-            fg_color=self.text_color_hex,
-            text_color="white",
+        ctk.CTkLabel(
+            parent,
+            text="Text",
+            font=ctk.CTkFont(size=12),
+        ).pack(
+            anchor="w",
+            padx=6,
+        )
+
+        self.text_color_var = tk.StringVar(
+            value=self.text_color_hex
+        )
+
+        self.text_color_entry, self.text_color_swatch = (
+            self._color_row(
+                parent,
+                self.text_color_var,
+                self._on_text_hex_committed,
+                self._pick_text_color,
+                return_entry=True,
+            )
+        )
+
+        self.text_color_entry.configure(
+            state="disabled"
+        )
+
+        self.text_color_swatch.configure(
+            state="disabled"
+        )
+
+
+    def _color_row(
+        self,
+        parent,
+        var,
+        on_commit,
+        on_pick_color,
+        return_entry=False,
+    ):
+
+        row = ctk.CTkFrame(
+            parent,
+            fg_color="transparent",
+        )
+
+        row.pack(
+            fill="x",
+            padx=6,
+            pady=(2, 6),
+        )
+
+        row.grid_columnconfigure(
+            0,
+            weight=1,
+        )
+
+        entry = ctk.CTkEntry(
+            row,
+            textvariable=var,
+            placeholder_text="#RRGGBB",
+        )
+
+        entry.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=(0, 6),
+        )
+
+        entry.bind(
+            "<Return>",
+            lambda _event: on_commit(),
+        )
+
+        entry.bind(
+            "<FocusOut>",
+            lambda _event: on_commit(),
+        )
+
+        swatch = ctk.CTkButton(
+            row,
+            text="",
+            width=36,
+            fg_color=var.get(),
             hover=False,
-            width=120,
-            state="disabled",
-            command=self._pick_text_color,
+            command=on_pick_color,
         )
 
-        self.text_color_swatch.pack(
-            side="right",
+        swatch.grid(
+            row=0,
+            column=1,
         )
+
+        if return_entry:
+
+            return entry, swatch
+
+        return swatch
+
+
+    def _normalize_hex_color(self, value):
+
+        value = value.strip()
+
+        if not value.startswith("#"):
+
+            value = "#" + value
+
+        if len(value) != 7:
+
+            return None
+
+        try:
+
+            int(
+                value[1:],
+                16,
+            )
+
+        except ValueError:
+
+            return None
+
+        return value.upper()
+
+
+    def _on_bg_hex_committed(self):
+
+        normalized = self._normalize_hex_color(
+            self.bg_color_var.get()
+        )
+
+        if normalized is None:
+
+            self.bg_color_var.set(
+                self.bg_color_hex
+            )
+
+            return
+
+        self.bg_color_hex = normalized
+
+        self.bg_color_var.set(
+            normalized
+        )
+
+        self.bg_color_swatch.configure(
+            fg_color=normalized
+        )
+
+        self._request_preview_update()
+
+
+    def _on_text_hex_committed(self):
+
+        normalized = self._normalize_hex_color(
+            self.text_color_var.get()
+        )
+
+        if normalized is None:
+
+            self.text_color_var.set(
+                self.text_color_hex
+            )
+
+            return
+
+        self.text_color_hex = normalized
+
+        self.text_color_var.set(
+            normalized
+        )
+
+        self.text_color_swatch.configure(
+            fg_color=normalized
+        )
+
+        self._request_preview_update()
 
 
     def _build_encoder_section(self, parent):
@@ -931,9 +1075,12 @@ class App(ctk.CTk):
             "#FFFFFF",
         )
 
+        self.bg_color_var.set(
+            self.bg_color_hex
+        )
+
         self.bg_color_swatch.configure(
-            text=self.bg_color_hex,
-            fg_color=self.bg_color_hex,
+            fg_color=self.bg_color_hex
         )
 
         self.text_color_hex = s.get(
@@ -941,21 +1088,30 @@ class App(ctk.CTk):
             "#000000",
         )
 
+        self.text_color_var.set(
+            self.text_color_hex
+        )
+
         self.text_color_swatch.configure(
-            text=self.text_color_hex,
-            fg_color=self.text_color_hex,
+            fg_color=self.text_color_hex
         )
 
         self.text_color_auto_var.set(
             s.get("text_color_auto", True)
         )
 
+        auto_state = (
+            "disabled"
+            if self.text_color_auto_var.get()
+            else "normal"
+        )
+
         self.text_color_swatch.configure(
-            state=(
-                "disabled"
-                if self.text_color_auto_var.get()
-                else "normal"
-            )
+            state=auto_state
+        )
+
+        self.text_color_entry.configure(
+            state=auto_state
         )
 
         self.logo_file_var.set(
@@ -1080,9 +1236,12 @@ class App(ctk.CTk):
 
             self.bg_color_hex = hex_value.upper()
 
+            self.bg_color_var.set(
+                self.bg_color_hex
+            )
+
             self.bg_color_swatch.configure(
-                text=self.bg_color_hex,
-                fg_color=self.bg_color_hex,
+                fg_color=self.bg_color_hex
             )
 
             self._request_preview_update()
@@ -1099,9 +1258,12 @@ class App(ctk.CTk):
 
             self.text_color_hex = hex_value.upper()
 
+            self.text_color_var.set(
+                self.text_color_hex
+            )
+
             self.text_color_swatch.configure(
-                text=self.text_color_hex,
-                fg_color=self.text_color_hex,
+                fg_color=self.text_color_hex
             )
 
             self._request_preview_update()
@@ -1111,8 +1273,14 @@ class App(ctk.CTk):
 
         auto = self.text_color_auto_var.get()
 
+        state = "disabled" if auto else "normal"
+
         self.text_color_swatch.configure(
-            state="disabled" if auto else "normal"
+            state=state
+        )
+
+        self.text_color_entry.configure(
+            state=state
         )
 
         self._request_preview_update()
