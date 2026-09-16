@@ -130,6 +130,16 @@ MOTION_ROW_THRESHOLD = 0.04
 COLOR_PRESERVE_THRESHOLD = 22
 COLOR_MIN_BRIGHTNESS = 55
 
+# How consistently dark a row/column must be (fraction of its
+# pixels under the darkness threshold) before it's trimmed as a
+# border. Deliberately close to 1.0: a genuine pillarbox/letterbox
+# is essentially 100% dark, while a real video's content can brush
+# right up against the edge (e.g. a face profile) without filling
+# the whole row/column. A looser fraction lets that thin bright
+# intrusion get outvoted by the rest of the mostly-dark row/column
+# and wrongly trimmed away as if it were part of the border.
+BORDER_DARK_FRACTION = 0.99
+
 # Pixels darker/lighter than these (max/min channel) are snapped
 # to pure black/white before recoloring, so a slightly-off-black
 # template background (shadow, compression, color cast) inverts
@@ -305,7 +315,7 @@ def trim_dark_horizontal_borders(
             <
             35
 
-        ).mean() > 0.88
+        ).mean() > BORDER_DARK_FRACTION
 
 
     def is_border_column(xx):
@@ -1133,7 +1143,7 @@ def detect_picture_area_from_frame(
             ]
             <
             35
-        ).mean() > 0.88:
+        ).mean() > BORDER_DARK_FRACTION:
 
             top_y = (
                 yy + 1
@@ -1157,7 +1167,7 @@ def detect_picture_area_from_frame(
             ]
             <
             35
-        ).mean() > 0.88:
+        ).mean() > BORDER_DARK_FRACTION:
 
             bottom_y = (
                 yy - 1
@@ -2160,6 +2170,37 @@ def build_static_template(
     preserve = (
         mask > 0
     )
+
+
+    # ========================================================
+    # SUPPRESS PRESERVATION LEFT/RIGHT OF THE MOVIE RECTANGLE
+    #
+    # Anything colorful sharing the movie's own rows, but outside
+    # its detected width, is essentially always bleed-through from
+    # the live video (a person/object partially outside the
+    # detected crop) rather than a genuine static emoji/logo
+    # elsewhere in the template. Suppress the whole remaining
+    # width on each side, not just a fixed margin, since the
+    # bleed can extend arbitrarily far depending on the shot.
+    # Preservation above/below the movie band is left untouched,
+    # since that's where a real caption/footer emoji would be.
+    # ========================================================
+
+    preserve[
+        y:
+        y + picture_height,
+
+        0:
+        x
+    ] = False
+
+    preserve[
+        y:
+        y + picture_height,
+
+        x + picture_width:
+        OUTPUT_WIDTH
+    ] = False
 
 
     template[
