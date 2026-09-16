@@ -22,7 +22,7 @@ This project started as a personal automation tool for a video workflow I use re
 
 The tool batch-processes videos from an input folder and produces recolored **1080×1920 vertical videos** in an output folder.
 
-Instead of processing every frame with Python, it analyzes only **one reference frame** to determine which parts of the layout are static and where the actual moving video is located.
+Instead of processing every frame with Python, it analyzes just a couple of sampled frames to determine which parts of the layout are static and where the actual moving video is located, then builds the recolored static layout from a single reference frame.
 
 It then:
 
@@ -53,10 +53,9 @@ Only the embedded movie/video area is moving.
 
 So instead of repeatedly analyzing thousands of frames, this tool:
 
-1. Analyzes one reference frame
-2. Detects the moving video region
-3. Builds the recolored static template once
-4. Lets FFmpeg handle the moving video for the rest of the encode
+1. Samples a couple of frames to detect the moving video region
+2. Builds the recolored static template once, from a single reference frame
+3. Lets FFmpeg handle the moving video for the rest of the encode
 
 This keeps expensive frame-by-frame image processing outside Python.
 
@@ -73,11 +72,9 @@ Aspect-Ratio-Preserving Resize
     ↓
 Center Crop to 1080×1920
     ↓
-Extract One Reference Frame
+Extract Reference Frame (+ a Second Frame for Motion Detection)
     ↓
-Analyze Frame with OpenCV
-    ↓
-Detect Embedded Video Region
+Detect Movie Region (Motion, or Color/Saturation Fallback)
     ↓
 Build Recolored Static Template
     ↓
@@ -780,20 +777,34 @@ If videos begin with a black frame or fade-in, you can change this to:
 REFERENCE_TIME_SECONDS = 0.5
 ```
 
+For motion-based region detection, a second frame is also sampled this many seconds after the reference frame:
+
+```python
+MOTION_SAMPLE_OFFSET_SECONDS = 1.5
+```
+
+The static template itself is still built from only the single reference frame.
+
 ## Automatic Video Region Detection
 
-The tool attempts to detect the embedded movie/video area by analyzing one reference frame.
+The tool attempts to detect the embedded movie/video area automatically, primarily by comparing two sampled frames rather than guessing from a single frame's color.
 
-OpenCV examines properties including:
+### Motion-Based Detection (Primary)
+
+A reference frame (`REFERENCE_TIME_SECONDS`) and a second frame roughly 1.5 seconds later are extracted and compared pixel-by-pixel. Wherever pixels actually change between the two frames is treated as the embedded video's vertical extent — this is a direct measurement, so it doesn't matter whether the moving content is plain, pale, dark, or saturated.
+
+Within that vertical band, the horizontal extent is assumed to span the full frame width by default, and is only narrowed inward where there is a genuine solid dark pillarbox border on either side. The same approach avoids misclassifying a real (but static-within-the-sample or plain-colored) part of the video as "not content."
+
+### Color/Saturation Heuristic (Fallback)
+
+If the video is too short for a second distinct sample, or no significant motion is found between the two frames (for example a completely static shot), detection falls back to a single-frame heuristic based on:
 
 * Brightness
 * Saturation
 * Vertical content distribution
 * Dark separator/border regions
 
-The vertical position of the embedded video is found by looking for a band of "colorful content" (brightness/saturation), since it varies a lot between templates (caption length, footer height, etc.).
-
-The horizontal extent is handled differently: within that vertical band, the embedded video is assumed to span the full frame width by default, and is only narrowed inward where there is a genuine solid dark pillarbox border on either side. This avoids misclassifying plain or pale parts of the actual video (for example a light-colored background) as "not content" and excluding them from the crop.
+The tool prints which method was used (`Detection method: ...`) for each video, so it's easy to tell which one applied.
 
 The detected rectangle is treated as the dynamic part of the template.
 
@@ -930,7 +941,7 @@ Examples include:
 
 ### Single Reference Frame
 
-Detection currently uses one reference frame per video.
+Region detection primarily compares two sampled frames (motion-based), which is more reliable than judging a single frame's color. The static template itself, however, is still built from only the single reference frame (`REFERENCE_TIME_SECONDS`).
 
 If that frame contains:
 
@@ -939,9 +950,9 @@ If that frame contains:
 * A transition
 * An unusual scene
 
-automatic region detection may be less accurate.
+the template's colors/preserved elements may be less accurate, and if the video has no meaningful motion within the sampled window (e.g. a completely static shot), detection falls back to the single-frame color/saturation heuristic, which can be less accurate for plain or unusually lit content.
 
-Changing `REFERENCE_TIME_SECONDS` can help.
+Changing `REFERENCE_TIME_SECONDS` (and, if needed, `MOTION_SAMPLE_OFFSET_SECONDS`) can help.
 
 ### CPU Encoding Performance
 

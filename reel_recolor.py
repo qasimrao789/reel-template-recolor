@@ -101,6 +101,32 @@ CHECKMARK_BLUE = (
 # If some videos begin with a black/fade frame, use 0.5 instead.
 REFERENCE_TIME_SECONDS = 0.0
 
+# ------------------------------------------------------------
+# Movie/picture region detection is primarily motion-based: a
+# second frame is sampled this many seconds after the reference
+# frame, and wherever pixels actually change between the two is
+# treated as the embedded video. This is far more reliable than
+# guessing from color/saturation, since it doesn't care whether
+# the moving content happens to be plain, pale, or dark. If the
+# video is too short for a second distinct sample, or nothing
+# moves enough between the two frames, detection falls back to
+# the single-frame color/saturation heuristic below.
+# ------------------------------------------------------------
+
+MOTION_SAMPLE_OFFSET_SECONDS = 1.5
+
+# Per-pixel RGB channel difference required to count as "moved".
+# Kept low-ish so subtler real motion (talking, blinking, slight
+# camera movement) still registers, while staying safely above
+# ordinary video-compression noise in a static region.
+MOTION_DIFF_THRESHOLD = 20
+
+# Fraction of pixels in a row that must have moved for that row
+# to count toward the detected region's vertical extent. (The
+# horizontal extent is found separately, via dark-border
+# trimming rather than motion; see trim_dark_horizontal_borders.)
+MOTION_ROW_THRESHOLD = 0.04
+
 COLOR_PRESERVE_THRESHOLD = 22
 COLOR_MIN_BRIGHTNESS = 55
 
@@ -235,6 +261,75 @@ def find_segments(mask):
         )
 
     return segments
+
+
+def trim_dark_horizontal_borders(
+    gray,
+    top_y,
+    bottom_y,
+    width
+):
+
+    # Assumes the embedded video spans the full width within its
+    # row band, and only pulls inward where there is a genuine
+    # solid dark pillarbox border on either side. Used by both
+    # detectors so a plain/pale part of the actual video is never
+    # excluded just for not being "content" or not showing motion
+    # within a short sample window.
+
+    picture_region_gray = gray[
+        top_y:
+        bottom_y + 1,
+        :
+    ]
+
+
+    left_x = 0
+
+    while (
+
+        left_x < width
+
+        and
+
+        (
+            picture_region_gray[
+                :,
+                left_x
+            ]
+            <
+            35
+        ).mean() > 0.88
+    ):
+
+        left_x += 1
+
+
+    right_x = width - 1
+
+    while (
+
+        right_x > left_x
+
+        and
+
+        (
+            picture_region_gray[
+                :,
+                right_x
+            ]
+            <
+            35
+        ).mean() > 0.88
+    ):
+
+        right_x -= 1
+
+
+    return (
+        left_x,
+        right_x
+    )
 
 
 def nvenc_is_usable():
@@ -611,12 +706,13 @@ def build_preprocess_filter(
 
 
 # ============================================================
-# EXTRACT ONLY ONE REFERENCE FRAME
+# EXTRACT A SINGLE FRAME AT A GIVEN TIME
 # ============================================================
 
-def extract_reference_frame(
+def extract_frame_at(
     video_path,
-    preprocess_filter
+    preprocess_filter,
+    time_seconds
 ):
 
     cmd = [
@@ -627,12 +723,12 @@ def extract_reference_frame(
     ]
 
 
-    if REFERENCE_TIME_SECONDS > 0:
+    if time_seconds > 0:
 
         cmd += [
             "-ss",
             str(
-                REFERENCE_TIME_SECONDS
+                time_seconds
             )
         ]
 
@@ -678,7 +774,8 @@ def extract_reference_frame(
     if len(raw) != expected_size:
 
         raise RuntimeError(
-            "Could not extract the 1080x1920 reference frame"
+            f"Could not extract a 1080x1920 frame at "
+            f"{time_seconds:.2f}s"
         )
 
 
@@ -693,7 +790,178 @@ def extract_reference_frame(
 
 
 # ============================================================
+# DETECT MOVIE / PICTURE AREA FROM MOTION BETWEEN TWO FRAMES
+#
+# PRIMARY detection method. Directly measures where pixels
+# change between two sampled frames, instead of guessing from
+# color/saturation in a single frame.
+# ============================================================
+
+def detect_picture_area_from_motion(
+    frame_a_rgb,
+    frame_b_rgb
+):
+
+    diff = np.abs(
+
+        frame_a_rgb.astype(
+            np.int16
+        )
+
+        -
+
+        frame_b_rgb.astype(
+            np.int16
+        )
+    )
+
+
+    motion_mask = (
+        diff.max(axis=2)
+        >
+        MOTION_DIFF_THRESHOLD
+    )
+
+
+    height, width = (
+        motion_mask.shape
+    )
+
+
+    # ========================================================
+    # VERTICAL
+    # ========================================================
+
+    row_score = motion_mask.mean(
+        axis=1
+    )
+
+
+    smooth_row_score = np.convolve(
+
+        row_score,
+
+        np.ones(15)
+        /
+        15,
+
+        mode="same"
+    )
+
+
+    row_segments = find_segments(
+        smooth_row_score > MOTION_ROW_THRESHOLD
+    )
+
+
+    meaningful_rows = [
+
+        seg
+
+        for seg in row_segments
+
+        if (
+            seg[1]
+            -
+            seg[0]
+        )
+        >
+        height * 0.08
+    ]
+
+
+    if not meaningful_rows:
+
+        raise RuntimeError(
+            "No vertical motion found between sampled frames"
+        )
+
+
+    top_y, bottom_y = max(
+
+        meaningful_rows,
+
+        key=lambda seg:
+        seg[1] - seg[0],
+    )
+
+
+    picture_height = (
+        bottom_y
+        -
+        top_y
+        +
+        1
+    )
+
+
+    # ========================================================
+    # HORIZONTAL
+    #
+    # Deliberately NOT based on motion: a real static part of
+    # the live video (e.g. a plain background behind a talking
+    # subject, or just a subject that hasn't moved yet within
+    # the short sampled window) would otherwise get wrongly
+    # trimmed away even though it's genuinely part of the movie.
+    # Use the same "assume full width, trim only a genuine dark
+    # pillarbox border" logic as the color-based fallback,
+    # within the vertical band that motion already located.
+    # ========================================================
+
+    gray = cv2.cvtColor(
+        frame_a_rgb,
+        cv2.COLOR_RGB2GRAY
+    )
+
+    left_x, right_x = trim_dark_horizontal_borders(
+        gray,
+        top_y,
+        bottom_y,
+        width,
+    )
+
+
+    picture_width = (
+        right_x
+        -
+        left_x
+        +
+        1
+    )
+
+
+    # ========================================================
+    # SAFETY
+    # ========================================================
+
+    if picture_height < height * 0.20:
+
+        raise RuntimeError(
+            "Detected motion region height is too small"
+        )
+
+
+    if picture_width < width * 0.20:
+
+        raise RuntimeError(
+            "Detected motion region width is too small"
+        )
+
+
+    return (
+        left_x,
+        top_y,
+        picture_width,
+        picture_height
+    )
+
+
+# ============================================================
 # DETECT MOVIE / PICTURE AREA FROM ONE FRAME
+#
+# FALLBACK detection method, used only when motion-based
+# detection isn't possible (video too short for a second
+# distinct sample) or finds no significant motion.
 # ============================================================
 
 def detect_picture_area_from_frame(
@@ -884,53 +1152,12 @@ def detect_picture_area_from_frame(
     # bounds are trimmed above.
     # ========================================================
 
-    picture_region_gray = gray[
-        top_y:
-        bottom_y + 1,
-        :
-    ]
-
-
-    left_x = 0
-
-    while (
-
-        left_x < width
-
-        and
-
-        (
-            picture_region_gray[
-                :,
-                left_x
-            ]
-            <
-            35
-        ).mean() > 0.88
-    ):
-
-        left_x += 1
-
-
-    right_x = width - 1
-
-    while (
-
-        right_x > left_x
-
-        and
-
-        (
-            picture_region_gray[
-                :,
-                right_x
-            ]
-            <
-            35
-        ).mean() > 0.88
-    ):
-
-        right_x -= 1
+    left_x, right_x = trim_dark_horizontal_borders(
+        gray,
+        top_y,
+        bottom_y,
+        width,
+    )
 
 
     picture_width = (
@@ -965,6 +1192,75 @@ def detect_picture_area_from_frame(
         top_y,
         picture_width,
         picture_height
+    )
+
+
+# ============================================================
+# DETECT MOVIE / PICTURE AREA
+#
+# Tries motion-based detection first (accurate regardless of
+# color); falls back to the single-frame color/saturation
+# heuristic if a second frame isn't available or no significant
+# motion is found.
+# ============================================================
+
+def detect_picture_area(
+    reference_rgb,
+    motion_frame_rgb
+):
+
+    if motion_frame_rgb is None:
+
+        fallback_reason = (
+            "motion-based detection skipped "
+            "(video too short for a second sample)"
+        )
+
+    else:
+
+        try:
+
+            (
+                x,
+                y,
+                picture_width,
+                picture_height
+            ) = detect_picture_area_from_motion(
+                reference_rgb,
+                motion_frame_rgb,
+            )
+
+            return (
+                x,
+                y,
+                picture_width,
+                picture_height,
+                "motion (2-frame diff)",
+            )
+
+        except RuntimeError as exc:
+
+            fallback_reason = (
+                f"motion-based detection unavailable "
+                f"({exc})"
+            )
+
+
+    (
+        x,
+        y,
+        picture_width,
+        picture_height
+    ) = detect_picture_area_from_frame(
+        reference_rgb
+    )
+
+    return (
+        x,
+        y,
+        picture_width,
+        picture_height,
+        f"color/saturation heuristic ({fallback_reason})",
     )
 
 
@@ -2371,28 +2667,72 @@ def process_video(
 
 
     # ========================================================
-    # ONLY ONE FRAME IS ANALYZED
+    # SAMPLE FRAME(S)
+    #
+    # Always extract the reference frame. Also try to extract a
+    # second frame a bit later, so the movie region can be found
+    # from actual motion instead of guessed from color.
     # ========================================================
 
-    reference_rgb = extract_reference_frame(
+    reference_rgb = extract_frame_at(
 
         video_path,
 
         preprocess_filter,
+
+        REFERENCE_TIME_SECONDS,
     )
 
 
+    motion_sample_time = (
+        REFERENCE_TIME_SECONDS
+        +
+        MOTION_SAMPLE_OFFSET_SECONDS
+    )
+
+
+    motion_frame_rgb = None
+
+    if (
+
+        source_duration <= 0
+
+        or
+
+        motion_sample_time
+        <
+        source_duration - 0.05
+    ):
+
+        try:
+
+            motion_frame_rgb = extract_frame_at(
+
+                video_path,
+
+                preprocess_filter,
+
+                motion_sample_time,
+            )
+
+        except Exception:
+
+            motion_frame_rgb = None
+
+
     # ========================================================
-    # DETECT TV RECTANGLE ON THAT ONE FRAME
+    # DETECT TV RECTANGLE
     # ========================================================
 
     (
         x,
         y,
         picture_width,
-        picture_height
-    ) = detect_picture_area_from_frame(
-        reference_rgb
+        picture_height,
+        detection_method
+    ) = detect_picture_area(
+        reference_rgb,
+        motion_frame_rgb,
     )
 
 
@@ -2470,9 +2810,23 @@ def process_video(
 
     print(
 
-        f"Reference analysis: "
-        f"ONE frame at "
+        f"Reference frame: "
         f"{REFERENCE_TIME_SECONDS:.2f}s"
+
+        +
+
+        (
+            f", motion sample at "
+            f"{motion_sample_time:.2f}s"
+            if motion_frame_rgb is not None
+            else ""
+        )
+    )
+
+
+    print(
+        f"Detection method: "
+        f"{detection_method}"
     )
 
 
