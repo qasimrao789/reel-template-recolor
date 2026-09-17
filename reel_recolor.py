@@ -55,23 +55,30 @@ TEXT_COLOR = None
 OUTPUT_WIDTH = 1080
 OUTPUT_HEIGHT = 1920
 
-# Optional branding/logo overlay.
+# ------------------------------------------------------------
+# Tweet block (avatar + name + checkmark + handle), and the
+# separate Logo file overlay. Two entirely independent features
+# that can both be enabled on the same video at once - Tweet is
+# not a "mode" of Logo or vice versa. Each has its own content,
+# its own gap/scale, and is composited as its own layer in
+# encode_with_static_template().
+# ------------------------------------------------------------
+
+# --- Logo (a supplied image file) ---
 # LOGO_PATH = None disables the feature entirely.
 LOGO_PATH = None
 
 # Vertical gap in pixels between the bottom of the detected
-# movie/picture frame and the top of the logo.
+# movie/picture frame and the top of the logo. Only used in
+# "auto" position mode.
 LOGO_GAP_PX = 40
 
-# Logo width as a fraction of the detected frame's width.
-# Height is auto-scaled to preserve the logo's aspect ratio.
-# None = pick a mode-appropriate default at runtime:
-# RAW_LOGO_SCALE_DEFAULT for a supplied --logo image,
-# GENERATED_LOGO_SCALE_DEFAULT for a generated branding block.
+# Logo width as a fraction of the detected frame's width, used
+# only in "auto" position mode. Height is auto-scaled to
+# preserve the logo's aspect ratio. None = RAW_LOGO_SCALE_DEFAULT.
 LOGO_SCALE = None
 
 RAW_LOGO_SCALE_DEFAULT = 1.0
-GENERATED_LOGO_SCALE_DEFAULT = 0.75
 
 # How the logo is positioned:
 # "auto"   = compute_logo_geometry(): centered under the detected
@@ -94,21 +101,33 @@ LOGO_POSITIONS_FILE = None
 # "auto"; see logo_positions.load_positions().
 LOGO_POSITIONS_DATA = None
 
-# ------------------------------------------------------------
-# Generated branding block (avatar + name + checkmark + handle).
-# Alternative to a ready-made LOGO_PATH image; set via
-# --avatar / --display-name / --username / --verified.
-# Rendered once at this internal resolution, then scaled down
-# to the detected frame width like any other logo. Sized so
-# that, combined with GENERATED_LOGO_SCALE_DEFAULT, the result
-# lands close to a normal social-media byline instead of being
-# blown up to fill the whole frame width.
-# ------------------------------------------------------------
+# --- Tweet block (avatar + name + checkmark + handle) ---
+# Set via --avatar / --display-name / --username / --verified.
+# Always auto-positioned under the detected frame (like Logo's
+# "auto" mode) - there's no manual placement for Tweet. Rendered
+# once at an internal resolution (AVATAR_DIAMETER/NAME_FONT_SIZE/
+# etc. below), then scaled down like any other overlay, sized so
+# that, combined with TWEET_SCALE_DEFAULT, the result lands close
+# to a normal social-media byline instead of filling the frame.
 
 AVATAR_PATH = None
 DISPLAY_NAME = None
 USERNAME = None
 VERIFIED_BADGE = True
+
+# Vertical gap in pixels between the bottom of the detected
+# movie/picture frame and the top of the Tweet block.
+TWEET_GAP_PX = 40
+
+# Tweet block width as a fraction of the detected frame's width.
+# None = TWEET_SCALE_DEFAULT.
+TWEET_SCALE = None
+
+TWEET_SCALE_DEFAULT = 0.75
+
+# The generated Tweet image is rendered to its own file, separate
+# from LOGO_PATH (a supplied --logo file). Resolved by main().
+TWEET_IMAGE_PATH = None
 
 AVATAR_DIAMETER = 160
 LOGO_PADDING = 18
@@ -1383,20 +1402,27 @@ def compute_logo_geometry(
     y,
     picture_width,
     picture_height,
+    gap_px,
+    scale,
 ):
+
+    # Shared by both auto-positioned overlays: Logo's "auto" mode
+    # (gap_px=LOGO_GAP_PX, scale=LOGO_SCALE) and the Tweet block
+    # (gap_px=TWEET_GAP_PX, scale=TWEET_SCALE) - same placement
+    # math, independent settings.
 
     logo_y = (
         y
         +
         picture_height
         +
-        LOGO_GAP_PX
+        gap_px
     )
 
     logo_width = round(
         picture_width
         *
-        LOGO_SCALE
+        scale
     )
 
     if logo_width % 2:
@@ -1639,7 +1665,7 @@ def draw_checkmark_badge(
     )
 
 
-def build_generated_logo_image(
+def build_tweet_image(
     display_name,
     username,
     verified,
@@ -2547,16 +2573,19 @@ def encode_with_static_template(
     y,
     picture_width,
     picture_height,
-    manual_logo_center=None,
-    force_no_logo=False,
+    overlays=None,
 ):
 
+    # overlays: list of {"path", "x", "y", "scale_width"} dicts,
+    # composited in order on top of the movie overlay. scale_width
+    # of None means native size (no scale filter) - used by Logo's
+    # manual position modes. Tweet and Logo are independent, so
+    # there can be 0, 1, or 2 entries here; the caller
+    # (process_video) decides what belongs in the list.
 
-    logo_enabled = (
-        LOGO_PATH is not None
-        and
-        not force_no_logo
-    )
+    if overlays is None:
+
+        overlays = []
 
 
     filter_complex = (
@@ -2582,101 +2611,86 @@ def encode_with_static_template(
     )
 
 
-    if logo_enabled and manual_logo_center is not None:
+    for i, overlay in enumerate(overlays):
 
-        logo_native_width, logo_native_height = Image.open(
-            LOGO_PATH
-        ).size
+        input_index = i + 2
 
-        (
-            logo_x,
-            logo_y
-        ) = compute_manual_logo_geometry(
-            manual_logo_center[0],
-            manual_logo_center[1],
-            logo_native_width,
-            logo_native_height,
-        )
+        if overlay["scale_width"] is not None:
 
-        filter_complex += (
+            filter_complex += (
 
-            f"[base]"
-            f"[movie]"
-            f"overlay="
-            f"{x}:"
-            f"{y}:"
-            f"shortest=1"
-            f"[composited];"
+                f"[{input_index}:v]"
+                f"format=rgba,"
+                f"scale="
+                f"{overlay['scale_width']}:"
+                f"-2"
+                f"[ov{i}];"
+            )
 
-            f"[2:v]"
-            f"format=rgba"
-            f"[logo];"
+        else:
 
-            f"[composited]"
-            f"[logo]"
-            f"overlay="
-            f"{logo_x}:"
-            f"{logo_y}:"
-            f"shortest=1,"
-            f"format=yuv420p"
-            f"[v]"
-        )
+            filter_complex += (
+
+                f"[{input_index}:v]"
+                f"format=rgba"
+                f"[ov{i}];"
+            )
 
 
-    elif logo_enabled:
+    filter_complex += (
 
-        (
-            logo_x,
-            logo_y,
-            logo_width
-        ) = compute_logo_geometry(
-            x,
-            y,
-            picture_width,
-            picture_height,
-        )
+        f"[base]"
+        f"[movie]"
+        f"overlay="
+        f"{x}:"
+        f"{y}:"
+        f"shortest=1"
+    )
+
+
+    if not overlays:
 
         filter_complex += (
-
-            f"[base]"
-            f"[movie]"
-            f"overlay="
-            f"{x}:"
-            f"{y}:"
-            f"shortest=1"
-            f"[composited];"
-
-            f"[2:v]"
-            f"format=rgba,"
-            f"scale="
-            f"{logo_width}:"
-            f"-2"
-            f"[logo];"
-
-            f"[composited]"
-            f"[logo]"
-            f"overlay="
-            f"{logo_x}:"
-            f"{logo_y}:"
-            f"shortest=1,"
-            f"format=yuv420p"
+            f",format=yuv420p"
             f"[v]"
         )
-
 
     else:
 
-        filter_complex += (
+        filter_complex += f"[stage0];"
 
-            f"[base]"
-            f"[movie]"
-            f"overlay="
-            f"{x}:"
-            f"{y}:"
-            f"shortest=1,"
-            f"format=yuv420p"
-            f"[v]"
-        )
+        current_label = "stage0"
+
+        for i, overlay in enumerate(overlays):
+
+            is_last = (
+                i == len(overlays) - 1
+            )
+
+            filter_complex += (
+
+                f"[{current_label}]"
+                f"[ov{i}]"
+                f"overlay="
+                f"{overlay['x']}:"
+                f"{overlay['y']}:"
+                f"shortest=1"
+            )
+
+            if is_last:
+
+                filter_complex += (
+                    f",format=yuv420p"
+                    f"[v]"
+                )
+
+            else:
+
+                next_label = f"stage{i + 1}"
+
+                filter_complex += f"[{next_label}];"
+
+                current_label = next_label
 
 
     cmd = [
@@ -2708,11 +2722,11 @@ def encode_with_static_template(
     ]
 
 
-    if logo_enabled:
+    for overlay in overlays:
 
         cmd += [
 
-            # Logo / branding overlay
+            # Tweet block / logo overlay
             "-loop",
             "1",
 
@@ -2720,7 +2734,7 @@ def encode_with_static_template(
             f"{fps:.8f}",
 
             "-i",
-            LOGO_PATH,
+            overlay["path"],
         ]
 
 
@@ -3148,10 +3162,60 @@ def process_video(
     )
 
 
+    overlays = []
+
+
+    if TWEET_IMAGE_PATH is not None:
+
+        (
+            tweet_x,
+            tweet_y,
+            tweet_width
+        ) = compute_logo_geometry(
+            x,
+            y,
+            picture_width,
+            picture_height,
+            TWEET_GAP_PX,
+            TWEET_SCALE,
+        )
+
+        overlays.append(
+            {
+                "path": TWEET_IMAGE_PATH,
+                "x": tweet_x,
+                "y": tweet_y,
+                "scale_width": tweet_width,
+            }
+        )
+
+        print(
+            "Tweet overlay: "
+
+            f"{TWEET_IMAGE_PATH} "
+
+            f"(x={tweet_x}, "
+
+            f"y={tweet_y}, "
+
+            f"width={tweet_width}, "
+
+            f"gap={TWEET_GAP_PX}px)"
+        )
+
+        if tweet_y >= OUTPUT_HEIGHT:
+
+            print(
+                "WARNING: Tweet block position is below the "
+                "output canvas and will not be visible."
+            )
+
+
     if force_no_logo:
 
         print(
-            "Logo: skipped for this video (marked \"no logo\")"
+            "Logo overlay: skipped for this video "
+            "(marked \"no logo\")"
         )
 
     elif LOGO_PATH is not None and manual_logo_center is not None:
@@ -3168,6 +3232,15 @@ def process_video(
             manual_logo_center[1],
             logo_native_width,
             logo_native_height,
+        )
+
+        overlays.append(
+            {
+                "path": LOGO_PATH,
+                "x": logo_x,
+                "y": logo_y,
+                "scale_width": None,
+            }
         )
 
         print(
@@ -3197,6 +3270,17 @@ def process_video(
             y,
             picture_width,
             picture_height,
+            LOGO_GAP_PX,
+            LOGO_SCALE,
+        )
+
+        overlays.append(
+            {
+                "path": LOGO_PATH,
+                "x": logo_x,
+                "y": logo_y,
+                "scale_width": logo_width,
+            }
         )
 
         print(
@@ -3279,9 +3363,7 @@ def process_video(
 
             picture_height,
 
-            manual_logo_center,
-
-            force_no_logo,
+            overlays,
         )
 
 
@@ -3317,7 +3399,7 @@ def process_video(
 
 def main():
 
-    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, ENCODER_MODE, VIDEO_ENCODER, LOGO_PATH, LOGO_GAP_PX, LOGO_SCALE, AVATAR_PATH, DISPLAY_NAME, USERNAME, VERIFIED_BADGE, LOGO_POSITION_MODE, LOGO_POSITIONS_FILE, LOGO_POSITIONS_DATA
+    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, ENCODER_MODE, VIDEO_ENCODER, LOGO_PATH, LOGO_GAP_PX, LOGO_SCALE, AVATAR_PATH, DISPLAY_NAME, USERNAME, VERIFIED_BADGE, LOGO_POSITION_MODE, LOGO_POSITIONS_FILE, LOGO_POSITIONS_DATA, TWEET_GAP_PX, TWEET_SCALE, TWEET_IMAGE_PATH
 
     parser = argparse.ArgumentParser(
         description="Recolor vertical video templates."
@@ -3385,11 +3467,9 @@ def main():
         type=float,
         default=LOGO_SCALE,
         help=(
-            "Logo width as a fraction of the detected frame's width. "
-            "Height is scaled to preserve aspect ratio. Default: "
-            f"{RAW_LOGO_SCALE_DEFAULT} for a supplied --logo image, "
-            f"{GENERATED_LOGO_SCALE_DEFAULT} for a generated branding "
-            "block."
+            "Logo width as a fraction of the detected frame's width, "
+            "used in \"auto\" position mode. Height is scaled to "
+            f"preserve aspect ratio. Default: {RAW_LOGO_SCALE_DEFAULT}"
         ),
     )
 
@@ -3397,24 +3477,25 @@ def main():
         "--avatar",
         default=AVATAR_PATH,
         help=(
-            "Path to a profile picture to generate a branding block "
-            "from (center-cropped to a circle). Alternative to --logo; "
-            "cannot be combined with it."
+            "Path to a profile picture for the Tweet block (avatar + "
+            "name + handle), center-cropped to a circle. Enables the "
+            "Tweet block; independent of --logo, both can be used "
+            "together."
         ),
     )
 
     parser.add_argument(
         "--display-name",
         default=DISPLAY_NAME,
-        help="Bold display name for the generated branding block.",
+        help="Bold display name for the Tweet block.",
     )
 
     parser.add_argument(
         "--username",
         default=USERNAME,
         help=(
-            'Handle for the generated branding block, e.g. "myhandle" '
-            'or "@myhandle".'
+            'Handle for the Tweet block, e.g. "myhandle" or '
+            '"@myhandle".'
         ),
     )
 
@@ -3424,8 +3505,30 @@ def main():
         default=VERIFIED_BADGE,
         help=(
             "Show a blue verified checkmark next to the display name "
-            "in the generated branding block. Default: on. Use "
-            "--no-verified to turn it off."
+            "in the Tweet block. Default: on. Use --no-verified to "
+            "turn it off."
+        ),
+    )
+
+    parser.add_argument(
+        "--tweet-gap",
+        type=int,
+        default=TWEET_GAP_PX,
+        help=(
+            "Vertical gap in pixels between the bottom of the "
+            "detected movie frame and the top of the Tweet block. "
+            "Default: 40"
+        ),
+    )
+
+    parser.add_argument(
+        "--tweet-scale",
+        type=float,
+        default=TWEET_SCALE,
+        help=(
+            "Tweet block width as a fraction of the detected frame's "
+            "width. Height is scaled to preserve aspect ratio. "
+            f"Default: {TWEET_SCALE_DEFAULT}"
         ),
     )
 
@@ -3474,8 +3577,12 @@ def main():
     VERIFIED_BADGE = args.verified
     LOGO_POSITION_MODE = args.logo_position_mode
     LOGO_POSITIONS_FILE = args.logo_positions_file
+    TWEET_GAP_PX = args.tweet_gap
+    TWEET_SCALE = args.tweet_scale
 
-    generated_logo_requested = (
+    # Tweet (avatar/name/handle block) and Logo (a supplied image
+    # file) are entirely independent - both may be enabled at once.
+    tweet_requested = (
         AVATAR_PATH is not None
         or
         DISPLAY_NAME is not None
@@ -3485,11 +3592,11 @@ def main():
 
     if LOGO_SCALE is None:
 
-        LOGO_SCALE = (
-            GENERATED_LOGO_SCALE_DEFAULT
-            if generated_logo_requested
-            else RAW_LOGO_SCALE_DEFAULT
-        )
+        LOGO_SCALE = RAW_LOGO_SCALE_DEFAULT
+
+    if TWEET_SCALE is None:
+
+        TWEET_SCALE = TWEET_SCALE_DEFAULT
 
     if (
         LOGO_PATH is not None
@@ -3503,21 +3610,6 @@ def main():
 
         raise RuntimeError(
             f"Logo file not found: {LOGO_PATH}"
-        )
-
-    if (
-        LOGO_PATH is not None
-
-        and
-
-        generated_logo_requested
-    ):
-
-        raise RuntimeError(
-            "--logo cannot be combined with --avatar/--display-name/"
-            "--username. Use --logo for a ready-made image, or the "
-            "--avatar/--display-name/--username/--verified options to "
-            "generate one."
         )
 
     if (
@@ -3540,16 +3632,12 @@ def main():
         and
 
         LOGO_PATH is None
-
-        and
-
-        not generated_logo_requested
     ):
 
         raise RuntimeError(
-            f"--logo-position-mode {LOGO_POSITION_MODE} requires a "
-            "logo to position: pass --logo or "
-            "--avatar/--display-name."
+            f"--logo-position-mode {LOGO_POSITION_MODE} requires "
+            "--logo (it only applies to the Logo file overlay, not "
+            "the Tweet block)."
         )
 
     TEMPLATE_FOLDER = os.path.join(
@@ -3611,9 +3699,9 @@ def main():
     )
 
 
-    if generated_logo_requested:
+    if tweet_requested:
 
-        generated_logo_image = build_generated_logo_image(
+        tweet_image = build_tweet_image(
             DISPLAY_NAME,
             USERNAME,
             VERIFIED_BADGE,
@@ -3622,13 +3710,13 @@ def main():
             background_rgb,
         )
 
-        LOGO_PATH = os.path.join(
+        TWEET_IMAGE_PATH = os.path.join(
             TEMPLATE_FOLDER,
-            "_generated_logo.png",
+            "_tweet_block.png",
         )
 
-        generated_logo_image.save(
-            LOGO_PATH
+        tweet_image.save(
+            TWEET_IMAGE_PATH
         )
 
 
@@ -3700,10 +3788,10 @@ def main():
     )
 
 
-    if generated_logo_requested:
+    if tweet_requested:
 
         print(
-            "Logo: generated "
+            "Tweet block: "
             f"(avatar={AVATAR_PATH}, "
             f"name={DISPLAY_NAME!r}, "
             f"username={USERNAME!r}, "
@@ -3711,31 +3799,40 @@ def main():
         )
 
         print(
-            f"Logo gap: "
-            f"{LOGO_GAP_PX}px"
+            f"Tweet gap: "
+            f"{TWEET_GAP_PX}px"
         )
 
         print(
-            f"Logo scale: "
-            f"{LOGO_SCALE}"
+            f"Tweet scale: "
+            f"{TWEET_SCALE}"
         )
 
-    elif LOGO_PATH is not None:
+    else:
+
+        print(
+            "Tweet block: disabled"
+        )
+
+
+    if LOGO_PATH is not None:
 
         print(
             f"Logo: "
             f"{LOGO_PATH}"
         )
 
-        print(
-            f"Logo gap: "
-            f"{LOGO_GAP_PX}px"
-        )
+        if LOGO_POSITION_MODE == "auto":
 
-        print(
-            f"Logo scale: "
-            f"{LOGO_SCALE}"
-        )
+            print(
+                f"Logo gap: "
+                f"{LOGO_GAP_PX}px"
+            )
+
+            print(
+                f"Logo scale: "
+                f"{LOGO_SCALE}"
+            )
 
     else:
 
@@ -3908,16 +4005,16 @@ def main():
             )
 
 
-    if generated_logo_requested:
+    if tweet_requested:
 
         try:
 
             if os.path.isfile(
-                LOGO_PATH
+                TWEET_IMAGE_PATH
             ):
 
                 os.remove(
-                    LOGO_PATH
+                    TWEET_IMAGE_PATH
                 )
 
         except Exception:

@@ -40,9 +40,10 @@ PREVIEW_DISPLAY_SIZE = (
 
 DEBOUNCE_MS = 300
 
-LOGO_MODE_NONE = "None"
-LOGO_MODE_FILE = "Logo File"
-LOGO_MODE_GENERATED = "Generated"
+# Tweet (avatar/name/handle block) and Logo (a supplied image
+# file) are two entirely independent, separately-toggleable
+# features - not modes of one shared selector. Both can be
+# enabled on the same video at once.
 
 POSITION_MODE_AUTO = "Auto"
 POSITION_MODE_FIXED = "Same spot for all"
@@ -62,14 +63,19 @@ DEFAULT_SETTINGS = {
     "bg_color": "#FFFFFF",
     "text_color_auto": True,
     "text_color": "#000000",
-    "logo_mode": LOGO_MODE_NONE,
-    "logo_file": "",
+
+    "tweet_enabled": False,
     "avatar_file": "",
     "display_name": "",
     "username": "",
     "verified": True,
+    "tweet_gap": 40,
+    "tweet_scale": 0.75,
+
+    "logo_enabled": False,
+    "logo_file": "",
     "logo_gap": 40,
-    "logo_scale": 0.75,
+    "logo_scale": 1.0,
     "logo_position_mode": POSITION_MODE_AUTO,
 }
 
@@ -177,14 +183,28 @@ class App(ctk.CTk):
                 self.text_color_auto_var.get()
             ),
             "text_color": self.text_color_hex,
-            "logo_mode": self.logo_mode_var.get(),
-            "logo_file": self.logo_file_var.get(),
+
+            "tweet_enabled": bool(
+                self.tweet_enabled_var.get()
+            ),
             "avatar_file": self.avatar_file_var.get(),
             "display_name": self.display_name_var.get(),
             "username": self.username_var.get(),
             "verified": bool(
                 self.verified_var.get()
             ),
+            "tweet_gap": int(
+                self.tweet_gap_var.get()
+            ),
+            "tweet_scale": round(
+                self.tweet_scale_var.get(),
+                3,
+            ),
+
+            "logo_enabled": bool(
+                self.logo_enabled_var.get()
+            ),
+            "logo_file": self.logo_file_var.get(),
             "logo_gap": int(
                 self.logo_gap_var.get()
             ),
@@ -398,6 +418,10 @@ class App(ctk.CTk):
         )
 
         self._build_encoder_section(
+            scroll
+        )
+
+        self._build_tweet_section(
             scroll
         )
 
@@ -753,47 +777,32 @@ class App(ctk.CTk):
         )
 
 
-    def _build_logo_section(self, parent):
+    def _build_tweet_section(self, parent):
+
+        # Independent feature: the avatar/name/handle block. Not a
+        # mode of Logo - both can be enabled at once.
 
         self._section_label(
             parent,
-            "Logo",
+            "Tweet",
         )
 
-        self.logo_mode_var = tk.StringVar(
-            value=LOGO_MODE_NONE
+        self.tweet_enabled_var = tk.BooleanVar(
+            value=False
         )
 
-        ctk.CTkSegmentedButton(
+        ctk.CTkCheckBox(
             parent,
-            values=[
-                LOGO_MODE_NONE,
-                LOGO_MODE_FILE,
-                LOGO_MODE_GENERATED,
-            ],
-            variable=self.logo_mode_var,
-            command=self._on_logo_mode_change,
+            text="Enable Tweet block",
+            variable=self.tweet_enabled_var,
+            command=self._on_tweet_enabled_change,
         ).pack(
-            fill="x",
+            anchor="w",
             padx=6,
-            pady=(2, 10),
+            pady=(2, 8),
         )
 
-        self.logo_file_frame = ctk.CTkFrame(
-            parent,
-            fg_color="transparent",
-        )
-
-        self.logo_file_var = tk.StringVar()
-
-        self._path_row(
-            self.logo_file_frame,
-            "Logo image",
-            self.logo_file_var,
-            self._browse_logo_file,
-        )
-
-        self.logo_generated_frame = ctk.CTkFrame(
+        self.tweet_fields_frame = ctk.CTkFrame(
             parent,
             fg_color="transparent",
         )
@@ -801,7 +810,7 @@ class App(ctk.CTk):
         self.avatar_file_var = tk.StringVar()
 
         self._path_row(
-            self.logo_generated_frame,
+            self.tweet_fields_frame,
             "Avatar image",
             self.avatar_file_var,
             self._browse_avatar_file,
@@ -810,7 +819,7 @@ class App(ctk.CTk):
         self.display_name_var = tk.StringVar()
 
         ctk.CTkLabel(
-            self.logo_generated_frame,
+            self.tweet_fields_frame,
             text="Display name",
             font=ctk.CTkFont(size=12),
         ).pack(
@@ -819,7 +828,7 @@ class App(ctk.CTk):
         )
 
         ctk.CTkEntry(
-            self.logo_generated_frame,
+            self.tweet_fields_frame,
             textvariable=self.display_name_var,
             placeholder_text="e.g. QasimRao",
         ).pack(
@@ -831,7 +840,7 @@ class App(ctk.CTk):
         self.username_var = tk.StringVar()
 
         ctk.CTkLabel(
-            self.logo_generated_frame,
+            self.tweet_fields_frame,
             text="Username",
             font=ctk.CTkFont(size=12),
         ).pack(
@@ -840,7 +849,7 @@ class App(ctk.CTk):
         )
 
         ctk.CTkEntry(
-            self.logo_generated_frame,
+            self.tweet_fields_frame,
             textvariable=self.username_var,
             placeholder_text="e.g. Quziii",
         ).pack(
@@ -854,7 +863,7 @@ class App(ctk.CTk):
         )
 
         ctk.CTkCheckBox(
-            self.logo_generated_frame,
+            self.tweet_fields_frame,
             text="Verified checkmark",
             variable=self.verified_var,
         ).pack(
@@ -863,8 +872,114 @@ class App(ctk.CTk):
             pady=(2, 6),
         )
 
-        self.logo_shared_frame = ctk.CTkFrame(
+        self.tweet_gap_var = tk.IntVar(
+            value=40
+        )
+
+        self._slider_row(
+            self.tweet_fields_frame,
+            "Tweet gap (px)",
+            self.tweet_gap_var,
+            0,
+            150,
+            150,
+            is_int=True,
+        )
+
+        self.tweet_scale_var = tk.DoubleVar(
+            value=0.75
+        )
+
+        self._slider_row(
+            self.tweet_fields_frame,
+            "Tweet scale",
+            self.tweet_scale_var,
+            0.1,
+            1.5,
+            140,
+            is_int=False,
+        )
+
+        # tweet_fields_frame is shown/hidden by
+        # _on_tweet_enabled_change.
+
+
+    def _build_logo_section(self, parent):
+
+        # Independent feature: a supplied logo image file, with
+        # its own auto or manually-clicked placement. Not a mode
+        # of Tweet - both can be enabled at once.
+
+        self._section_label(
             parent,
+            "Logo",
+        )
+
+        self.logo_enabled_var = tk.BooleanVar(
+            value=False
+        )
+
+        ctk.CTkCheckBox(
+            parent,
+            text="Enable Logo overlay",
+            variable=self.logo_enabled_var,
+            command=self._on_logo_enabled_change,
+        ).pack(
+            anchor="w",
+            padx=6,
+            pady=(2, 8),
+        )
+
+        self.logo_fields_frame = ctk.CTkFrame(
+            parent,
+            fg_color="transparent",
+        )
+
+        self.logo_file_var = tk.StringVar()
+
+        self._path_row(
+            self.logo_fields_frame,
+            "Logo image",
+            self.logo_file_var,
+            self._browse_logo_file,
+        )
+
+        # ------------------------------------------------------
+        # Logo position: auto (gap/scale-based placement below the
+        # frame) vs. manually clicked, at the logo's native size.
+        # ------------------------------------------------------
+
+        ctk.CTkLabel(
+            self.logo_fields_frame,
+            text="Logo position",
+            font=ctk.CTkFont(size=12),
+        ).pack(
+            anchor="w",
+            padx=6,
+            pady=(6, 0),
+        )
+
+        self.logo_position_mode_var = tk.StringVar(
+            value=POSITION_MODE_AUTO
+        )
+
+        ctk.CTkSegmentedButton(
+            self.logo_fields_frame,
+            values=[
+                POSITION_MODE_AUTO,
+                POSITION_MODE_FIXED,
+                POSITION_MODE_PER_REEL,
+            ],
+            variable=self.logo_position_mode_var,
+            command=self._on_logo_position_mode_change,
+        ).pack(
+            fill="x",
+            padx=6,
+            pady=(2, 8),
+        )
+
+        self.logo_shared_frame = ctk.CTkFrame(
+            self.logo_fields_frame,
             fg_color="transparent",
         )
 
@@ -883,7 +998,7 @@ class App(ctk.CTk):
         )
 
         self.logo_scale_var = tk.DoubleVar(
-            value=0.75
+            value=1.0
         )
 
         self._slider_row(
@@ -896,47 +1011,8 @@ class App(ctk.CTk):
             is_int=False,
         )
 
-        # ------------------------------------------------------
-        # Logo position: auto (existing gap/scale-based placement,
-        # above) vs. manually clicked, at the logo's native size.
-        # ------------------------------------------------------
-
-        self.logo_position_frame = ctk.CTkFrame(
-            parent,
-            fg_color="transparent",
-        )
-
-        ctk.CTkLabel(
-            self.logo_position_frame,
-            text="Logo position",
-            font=ctk.CTkFont(size=12),
-        ).pack(
-            anchor="w",
-            padx=6,
-            pady=(6, 0),
-        )
-
-        self.logo_position_mode_var = tk.StringVar(
-            value=POSITION_MODE_AUTO
-        )
-
-        ctk.CTkSegmentedButton(
-            self.logo_position_frame,
-            values=[
-                POSITION_MODE_AUTO,
-                POSITION_MODE_FIXED,
-                POSITION_MODE_PER_REEL,
-            ],
-            variable=self.logo_position_mode_var,
-            command=self._on_logo_position_mode_change,
-        ).pack(
-            fill="x",
-            padx=6,
-            pady=(2, 8),
-        )
-
         self.logo_fixed_frame = ctk.CTkFrame(
-            parent,
+            self.logo_fields_frame,
             fg_color="transparent",
         )
 
@@ -964,7 +1040,7 @@ class App(ctk.CTk):
         )
 
         self.logo_per_reel_frame = ctk.CTkFrame(
-            parent,
+            self.logo_fields_frame,
             fg_color="transparent",
         )
 
@@ -991,8 +1067,9 @@ class App(ctk.CTk):
             pady=(0, 8),
         )
 
-        # Sub-frames are shown/hidden by _on_logo_mode_change /
-        # _on_logo_position_mode_change.
+        # logo_fields_frame is shown/hidden by
+        # _on_logo_enabled_change; its sub-panels (gap/scale vs.
+        # fixed vs. per-reel) by _on_logo_position_mode_change.
 
 
     def _slider_row(
@@ -1226,10 +1303,6 @@ class App(ctk.CTk):
             state=auto_state
         )
 
-        self.logo_file_var.set(
-            s.get("logo_file", "")
-        )
-
         self.avatar_file_var.set(
             s.get("avatar_file", "")
         )
@@ -1246,25 +1319,41 @@ class App(ctk.CTk):
             s.get("verified", True)
         )
 
+        self.tweet_gap_var.set(
+            s.get("tweet_gap", 40)
+        )
+
+        self.tweet_scale_var.set(
+            s.get("tweet_scale", 0.75)
+        )
+
+        self.tweet_enabled_var.set(
+            s.get("tweet_enabled", False)
+        )
+
+        self._on_tweet_enabled_change()
+
+        self.logo_file_var.set(
+            s.get("logo_file", "")
+        )
+
         self.logo_gap_var.set(
             s.get("logo_gap", 40)
         )
 
         self.logo_scale_var.set(
-            s.get("logo_scale", 0.75)
+            s.get("logo_scale", 1.0)
         )
 
         self.logo_position_mode_var.set(
             s.get("logo_position_mode", POSITION_MODE_AUTO)
         )
 
-        self.logo_mode_var.set(
-            s.get("logo_mode", LOGO_MODE_NONE)
+        self.logo_enabled_var.set(
+            s.get("logo_enabled", False)
         )
 
-        self._on_logo_mode_change(
-            self.logo_mode_var.get()
-        )
+        self._on_logo_enabled_change()
 
 
     # ============================================================
@@ -1406,41 +1495,31 @@ class App(ctk.CTk):
     # LOGO MODE
     # ============================================================
 
-    def _on_logo_mode_change(self, choice):
+    def _on_tweet_enabled_change(self):
 
-        self.logo_file_frame.pack_forget()
-        self.logo_generated_frame.pack_forget()
-        self.logo_position_frame.pack_forget()
-        self.logo_shared_frame.pack_forget()
-        self.logo_fixed_frame.pack_forget()
-        self.logo_per_reel_frame.pack_forget()
+        self.tweet_fields_frame.pack_forget()
 
-        if choice == LOGO_MODE_FILE:
+        if self.tweet_enabled_var.get():
 
-            self.logo_file_frame.pack(
+            self.tweet_fields_frame.pack(
                 fill="x"
             )
 
-            # Manual click-to-place positioning is a Logo File
-            # feature only. It's kept deliberately separate from
-            # Generated (the avatar/name/handle block) below, which
-            # always uses auto gap/scale placement.
-            self.logo_position_frame.pack(
+        self._request_preview_update()
+
+
+    def _on_logo_enabled_change(self):
+
+        self.logo_fields_frame.pack_forget()
+
+        if self.logo_enabled_var.get():
+
+            self.logo_fields_frame.pack(
                 fill="x"
             )
 
             self._on_logo_position_mode_change(
                 self.logo_position_mode_var.get()
-            )
-
-        elif choice == LOGO_MODE_GENERATED:
-
-            self.logo_generated_frame.pack(
-                fill="x"
-            )
-
-            self.logo_shared_frame.pack(
-                fill="x"
             )
 
         self._request_preview_update()
@@ -1452,7 +1531,7 @@ class App(ctk.CTk):
         self.logo_fixed_frame.pack_forget()
         self.logo_per_reel_frame.pack_forget()
 
-        if self.logo_mode_var.get() == LOGO_MODE_NONE:
+        if not self.logo_enabled_var.get():
 
             return
 
@@ -1678,48 +1757,16 @@ class App(ctk.CTk):
 
     def _get_current_logo_native_size(self):
 
-        logo_mode = self.logo_mode_var.get()
+        # Logo-only: the click-to-place windows are a Logo File
+        # feature, unrelated to whether Tweet is also enabled.
 
         try:
 
-            if logo_mode == LOGO_MODE_FILE:
+            path = self.logo_file_var.get()
 
-                path = self.logo_file_var.get()
+            if path and os.path.isfile(path):
 
-                if path and os.path.isfile(path):
-
-                    return Image.open(path).size
-
-            elif logo_mode == LOGO_MODE_GENERATED:
-
-                avatar = self.avatar_file_var.get()
-
-                if avatar and os.path.isfile(avatar):
-
-                    background_rgb = rr.hex_to_rgb(
-                        self.bg_color_hex
-                    )
-
-                    rr.TEXT_COLOR = (
-                        None
-                        if self.text_color_auto_var.get()
-                        else self.text_color_hex
-                    )
-
-                    text_rgb = rr.get_text_rgb(
-                        background_rgb
-                    )
-
-                    image = rr.build_generated_logo_image(
-                        self.display_name_var.get() or None,
-                        self.username_var.get() or None,
-                        self.verified_var.get(),
-                        avatar,
-                        text_rgb,
-                        background_rgb,
-                    )
-
-                    return image.size
+                return Image.open(path).size
 
         except Exception:
 
@@ -2322,41 +2369,46 @@ class App(ctk.CTk):
             video_name,
         )
 
-        logo_mode_choice = self.logo_mode_var.get()
+        logo_position_mode = self.logo_position_mode_var.get()
 
-        manual_position_active = (
-            self.logo_position_mode_var.get()
-            !=
-            POSITION_MODE_AUTO
-        )
+        logo_manual_center = None
 
-        logo_mode = {
-            LOGO_MODE_NONE: "none",
-            LOGO_MODE_FILE: "file",
-            LOGO_MODE_GENERATED: "generated",
-        }.get(
-            logo_mode_choice,
-            "none",
-        )
+        self.preview_manual_position_note = ""
 
-        # Manual logo positioning doesn't relate to this preview's
-        # reference video the way auto-placement does - showing an
-        # auto-computed logo position here would be misleading, so
-        # this pane just shows the template/video without it. Use
-        # the position picker windows for a WYSIWYG preview of
-        # manual placement instead.
-        if manual_position_active:
+        if (
 
-            logo_mode = "none"
+            self.logo_enabled_var.get()
 
-        self.preview_manual_position_note = (
-            (
-                "\n(Manual logo positioning is active - use the "
-                "position picker for a placement preview.)"
-            )
-            if manual_position_active
-            else ""
-        )
+            and
+
+            logo_position_mode != POSITION_MODE_AUTO
+        ):
+
+            # Look up this exact video's saved point (if any) so
+            # the live preview shows real manual placement, the
+            # same way the click-to-place windows do - instead of
+            # a misleading auto-computed position.
+            try:
+
+                data = logo_positions.load_positions(
+                    self._positions_file_path()
+                )
+
+                logo_manual_center = logo_positions.get_position_for(
+                    data,
+                    video_name,
+                )
+
+            except Exception:
+
+                logo_manual_center = None
+
+            if logo_manual_center is None:
+
+                self.preview_manual_position_note = (
+                    "\n(No saved logo position for this video "
+                    "yet - use the position picker.)"
+                )
 
         params = dict(
             video_path=video_path,
@@ -2366,23 +2418,27 @@ class App(ctk.CTk):
                 if self.text_color_auto_var.get()
                 else self.text_color_hex
             ),
-            logo_mode=logo_mode,
-            logo_path=(
-                self.logo_file_var.get()
-                if logo_mode == "file"
-                else self.avatar_file_var.get()
-            ),
+            tweet_enabled=self.tweet_enabled_var.get(),
+            avatar_path=self.avatar_file_var.get() or None,
             display_name=self.display_name_var.get() or None,
             username=self.username_var.get() or None,
             verified=self.verified_var.get(),
+            tweet_gap_px=int(
+                self.tweet_gap_var.get()
+            ),
+            tweet_scale=self.tweet_scale_var.get(),
+            logo_enabled=self.logo_enabled_var.get(),
+            logo_path=self.logo_file_var.get() or None,
+            logo_position_mode=(
+                "manual"
+                if logo_position_mode != POSITION_MODE_AUTO
+                else "auto"
+            ),
+            logo_manual_center=logo_manual_center,
             logo_gap_px=int(
                 self.logo_gap_var.get()
             ),
-            logo_scale=(
-                self.logo_scale_var.get()
-                if logo_mode != "none"
-                else None
-            ),
+            logo_scale=self.logo_scale_var.get(),
         )
 
         self.preview_generation += 1
@@ -2465,6 +2521,15 @@ class App(ctk.CTk):
             f"Detection method: "
             f"{result['detection_method']}",
         ]
+
+        if result["tweet_info"]:
+
+            ti = result["tweet_info"]
+
+            status_lines.append(
+                f"Tweet: x={ti['x']}, y={ti['y']}, "
+                f"width={ti['width']}, height={ti['height']}"
+            )
 
         if result["logo_info"]:
 
@@ -2586,30 +2651,11 @@ class App(ctk.CTk):
                 self.text_color_hex,
             ]
 
-        logo_mode = self.logo_mode_var.get()
+        # Tweet and Logo are independent - each contributes its own
+        # flags based on its own enable checkbox, so both, either,
+        # or neither can end up in the command.
 
-        # Manual click-to-place positioning only ever applies to
-        # Logo File - Generated (the tweet-style block) always
-        # uses auto gap/scale placement, regardless of whatever
-        # logo_position_mode_var happens to hold.
-        manual_position = (
-            logo_mode == LOGO_MODE_FILE
-
-            and
-
-            self.logo_position_mode_var.get()
-            !=
-            POSITION_MODE_AUTO
-        )
-
-        if logo_mode == LOGO_MODE_FILE:
-
-            args += [
-                "--logo",
-                self.logo_file_var.get(),
-            ]
-
-        elif logo_mode == LOGO_MODE_GENERATED:
+        if self.tweet_enabled_var.get():
 
             args += [
                 "--avatar",
@@ -2628,10 +2674,25 @@ class App(ctk.CTk):
             args += [
                 "--verified"
                 if self.verified_var.get()
-                else "--no-verified"
+                else "--no-verified",
+                "--tweet-gap",
+                str(int(self.tweet_gap_var.get())),
+                "--tweet-scale",
+                f"{self.tweet_scale_var.get():.3f}",
             ]
 
-        if logo_mode != LOGO_MODE_NONE:
+        if self.logo_enabled_var.get():
+
+            manual_position = (
+                self.logo_position_mode_var.get()
+                !=
+                POSITION_MODE_AUTO
+            )
+
+            args += [
+                "--logo",
+                self.logo_file_var.get(),
+            ]
 
             if manual_position:
 

@@ -7,11 +7,17 @@ def render_preview_frame(
     video_path,
     target_color_hex,
     text_color_hex,
-    logo_mode,
-    logo_path=None,
+    tweet_enabled=False,
+    avatar_path=None,
     display_name=None,
     username=None,
     verified=True,
+    tweet_gap_px=40,
+    tweet_scale=None,
+    logo_enabled=False,
+    logo_path=None,
+    logo_position_mode="auto",
+    logo_manual_center=None,
     logo_gap_px=40,
     logo_scale=None,
 ):
@@ -19,6 +25,9 @@ def render_preview_frame(
     # Reuses reel_recolor.py's own pipeline functions so the
     # preview is pixel-for-pixel what one frame of the real
     # ffmpeg output would look like, with no video encoding.
+    # Tweet and Logo are independent - either, both, or neither
+    # can be composited onto the same preview image, matching how
+    # they're independent overlays in the real render.
 
     source_width, source_height, fps, duration = rr.probe_video(
         video_path
@@ -111,90 +120,180 @@ def render_preview_frame(
         mode="RGB",
     ).convert("RGBA")
 
+    tweet_info = None
+
     logo_info = None
 
-    if logo_mode in ("file", "generated"):
 
-        rr.LOGO_GAP_PX = logo_gap_px
+    if tweet_enabled and avatar_path:
 
-        if logo_mode == "generated":
+        effective_tweet_scale = (
+            tweet_scale
+            if tweet_scale is not None
+            else rr.TWEET_SCALE_DEFAULT
+        )
 
-            effective_scale = (
-                logo_scale
-                if logo_scale is not None
-                else rr.GENERATED_LOGO_SCALE_DEFAULT
-            )
-
-            logo_image = rr.build_generated_logo_image(
-                display_name,
-                username,
-                verified,
-                logo_path,
-                text_rgb,
-                background_rgb,
-            )
-
-        else:
-
-            effective_scale = (
-                logo_scale
-                if logo_scale is not None
-                else rr.RAW_LOGO_SCALE_DEFAULT
-            )
-
-            logo_image = Image.open(
-                logo_path
-            ).convert("RGBA")
-
-        rr.LOGO_SCALE = effective_scale
+        tweet_image = rr.build_tweet_image(
+            display_name,
+            username,
+            verified,
+            avatar_path,
+            text_rgb,
+            background_rgb,
+        )
 
         (
-            logo_x,
-            logo_y,
-            logo_width
+            tweet_x,
+            tweet_y,
+            tweet_width
         ) = rr.compute_logo_geometry(
             x,
             y,
             picture_width,
             picture_height,
+            tweet_gap_px,
+            effective_tweet_scale,
         )
 
-        logo_aspect = (
-            logo_image.height
+        tweet_aspect = (
+            tweet_image.height
             /
-            logo_image.width
+            tweet_image.width
         )
 
-        logo_height = max(
+        tweet_height = max(
             2,
             round(
-                logo_width * logo_aspect
+                tweet_width * tweet_aspect
             )
         )
 
-        resized_logo = logo_image.resize(
+        resized_tweet = tweet_image.resize(
             (
-                logo_width,
-                logo_height
+                tweet_width,
+                tweet_height
             ),
             Image.Resampling.LANCZOS,
         )
 
         preview_image.paste(
-            resized_logo,
+            resized_tweet,
+            (
+                tweet_x,
+                tweet_y
+            ),
+            resized_tweet,
+        )
+
+        tweet_info = {
+            "x": tweet_x,
+            "y": tweet_y,
+            "width": tweet_width,
+            "height": tweet_height,
+        }
+
+
+    if logo_enabled and logo_path:
+
+        logo_image = Image.open(
+            logo_path
+        ).convert("RGBA")
+
+        if (
+
+            logo_position_mode == "manual"
+
+            and
+
+            logo_manual_center is not None
+        ):
+
+            logo_native_width, logo_native_height = (
+                logo_image.size
+            )
+
             (
                 logo_x,
                 logo_y
-            ),
-            resized_logo,
-        )
+            ) = rr.compute_manual_logo_geometry(
+                logo_manual_center[0],
+                logo_manual_center[1],
+                logo_native_width,
+                logo_native_height,
+            )
 
-        logo_info = {
-            "x": logo_x,
-            "y": logo_y,
-            "width": logo_width,
-            "height": logo_height,
-        }
+            resized_logo = logo_image
+
+            logo_width = logo_native_width
+
+            logo_height = logo_native_height
+
+        elif logo_position_mode != "manual":
+
+            effective_logo_scale = (
+                logo_scale
+                if logo_scale is not None
+                else rr.RAW_LOGO_SCALE_DEFAULT
+            )
+
+            (
+                logo_x,
+                logo_y,
+                logo_width
+            ) = rr.compute_logo_geometry(
+                x,
+                y,
+                picture_width,
+                picture_height,
+                logo_gap_px,
+                effective_logo_scale,
+            )
+
+            logo_aspect = (
+                logo_image.height
+                /
+                logo_image.width
+            )
+
+            logo_height = max(
+                2,
+                round(
+                    logo_width * logo_aspect
+                )
+            )
+
+            resized_logo = logo_image.resize(
+                (
+                    logo_width,
+                    logo_height
+                ),
+                Image.Resampling.LANCZOS,
+            )
+
+        else:
+
+            # Manual mode but no saved position for the currently
+            # previewed video (or none provided) - nothing to draw.
+            resized_logo = None
+
+        if resized_logo is not None:
+
+            preview_image.paste(
+                resized_logo,
+                (
+                    logo_x,
+                    logo_y
+                ),
+                resized_logo,
+            )
+
+            logo_info = {
+                "x": logo_x,
+                "y": logo_y,
+                "width": logo_width,
+                "height": logo_height,
+            }
+
 
     return {
         "image": preview_image.convert("RGB"),
@@ -205,6 +304,7 @@ def render_preview_frame(
             picture_width,
             picture_height,
         ),
+        "tweet_info": tweet_info,
         "logo_info": logo_info,
         "source_size": (
             source_width,

@@ -109,10 +109,10 @@ Final MP4
 * Custom text color
 * Automatic contrasting text color
 * Color and emoji preservation
-* Optional automatic logo/branding overlay with `--logo`
-* Logo positioned and scaled relative to the detected movie/picture region
+* Optional Logo overlay (`--logo`) and Tweet block (`--avatar`/`--display-name`/...) — independent features, usable separately or together on the same video
+* Logo positioned and scaled relative to the detected movie/picture region, automatically or by manually clicking a position
 * Logo colors and transparency preserved (not recolored)
-* Optional generated branding block (avatar, name, verified checkmark, handle) as an alternative to a pre-made logo file
+* Tweet block: circular avatar, name, verified checkmark, handle — generated from simple inputs
 * Existing-output validation
 * Resume / skip completed videos
 * Original audio preserved
@@ -235,15 +235,15 @@ It's a front-end for the exact same `reel_recolor.py` — starting a batch from 
 
 Features:
 
-* Live preview of the recolored template + logo, rendered from a real reference frame of a selected input video, with no video encoding involved
+* Live preview of the recolored template + overlays, rendered from a real reference frame of a selected input video, with no video encoding involved
 * A dropdown to preview any video in the chosen input folder
 * Background/text color pickers
 * Encoder mode selection
-* Logo mode: none, a supplied logo file, or a generated branding block (avatar/name/username/verified), matching the CLI's `--logo` vs `--avatar`/`--display-name`/`--username`/`--verified` options
-* Sliders for logo gap and logo scale that re-render the preview live, so the right size/spacing can be dialed in visually instead of guessing `--logo-scale` values and re-running the CLI
+* **Tweet** section: its own enable checkbox, avatar/display-name/username/verified fields, gap/scale sliders
+* **Logo** section: its own enable checkbox, file picker, and position mode (Auto, with gap/scale sliders that re-render the preview live; or manual — see below). Tweet and Logo are independent and can both be enabled at once
 * Click-to-place manual logo positioning — "Same spot for all" (one click, reused for every video) or "Per-reel" (click through videos one at a time, with progress tracking and resume across sessions) — see [Manual Logo Positioning](#manual-logo-positioning)
 * A log panel showing the same per-video output the CLI prints, with Start/Stop controls for the batch run
-* Settings (folders, colors, logo config) are remembered between runs in `gui_settings.json` (not committed to the repository)
+* Settings (folders, colors, Tweet/Logo config) are remembered between runs in `gui_settings.json` (not committed to the repository)
 
 ## Basic Usage
 
@@ -314,12 +314,14 @@ The current options are:
 --logo
 --logo-gap
 --logo-scale
+--logo-position-mode
+--logo-positions-file
 --avatar
 --display-name
 --username
 --verified / --no-verified
---logo-position-mode
---logo-positions-file
+--tweet-gap
+--tweet-scale
 ```
 
 ## Choose an Input Folder
@@ -581,78 +583,28 @@ Background: black
 Text: white
 ```
 
-## Logo / Branding Overlay
+## Tweet Block and Logo Overlay
 
-Use `--logo` to automatically overlay a branding image (for example a channel logo with a name and handle, like a tweet header) onto every processed video.
+There are two entirely independent overlay features — not two modes of one shared thing. Either, both, or neither can be enabled on the same batch run:
 
-Example:
-
-```bash
-python reel_recolor.py --logo "D:\Branding\logo.png"
-```
-
-If `--logo` is omitted, no logo is added and behavior is unchanged.
-
-### Automatic Positioning
-
-Every video's embedded movie/picture region is detected independently, so its position and size differ from video to video. The logo is positioned relative to that detected region instead of a fixed pixel location:
-
-* The logo's **top edge** is placed below the **bottom edge** of the detected movie/picture region.
-* The logo is **horizontally centered** within the **width** of the detected movie/picture region.
-* The logo is **scaled to the width** of the detected movie/picture region (or a fraction of it, see `--logo-scale`), with its height scaled proportionally to preserve its own aspect ratio.
-
-This means the same `--logo` image is repositioned and rescaled automatically for each video, based on that video's own detected frame.
-
-### Logo Colors
-
-The logo image keeps its own original colors. It is not recolored like the surrounding template, and transparency (for example a PNG with an alpha channel) is preserved.
-
-### Gap Below the Frame
-
-Use `--logo-gap` to control the vertical spacing, in pixels, between the bottom of the detected movie/picture region and the top of the logo.
+* **Tweet** — a generated "profile header" style graphic (circular avatar, bold display name, optional blue verified checkmark, `@handle`), built from simple inputs. Always positioned automatically below the detected frame.
+* **Logo** — a ready-made image file you supply, positioned either automatically below the frame or by hand (see [Manual Logo Positioning](#manual-logo-positioning) below).
 
 ```bash
-python reel_recolor.py --logo "D:\Branding\logo.png" --logo-gap 60
+python reel_recolor.py --avatar "D:\Branding\avatar.png" --display-name "Funnyhoodvidzzzzzz" --username "funnyhoodvidzzzzzz" --logo "D:\Branding\watermark.png"
 ```
 
-The default is:
+That example uses both at once: the Tweet block below the frame, and a separate logo watermark positioned independently. Omit either group of flags to use just the other, or neither for plain recoloring.
 
-```python
-LOGO_GAP_PX = 40
-```
-
-### Logo Scale
-
-Use `--logo-scale` to control the logo's width as a fraction of the detected movie/picture region's width.
-
-```bash
-python reel_recolor.py --logo "D:\Branding\logo.png" --logo-scale 0.75
-```
-
-The default depends on which kind of logo is used:
-
-```python
-RAW_LOGO_SCALE_DEFAULT = 1.0         # a supplied --logo image
-GENERATED_LOGO_SCALE_DEFAULT = 0.75  # a generated branding block
-```
-
-A supplied `--logo` image defaults to filling the full detected frame width, since it's assumed to already be sized/designed the way you want. A generated branding block defaults to a smaller `0.75` so the avatar and text land at a normal social-media byline size instead of being stretched edge-to-edge across the frame. Either can be overridden with `--logo-scale`. Whenever the logo is narrower than the frame, it is centered within the frame's width rather than left-aligned.
-
-## Generated Branding Block
-
-Instead of hand-making a logo image, the tool can generate a "profile header" style graphic — a circular avatar, bold display name, optional blue verified checkmark, and `@handle` — directly from simple, editable inputs. It is positioned, scaled, and colored the same way as a manual `--logo` image (see above), and the two are mutually exclusive: use one or the other, not both.
-
-```bash
-python reel_recolor.py --avatar "D:\Branding\avatar.png" --display-name "Funnyhoodvidzzzzzz" --username "funnyhoodvidzzzzzz"
-```
-
-### Generated Logo Options
+## Tweet Block
 
 ```text
 --avatar
 --display-name
 --username
 --verified / --no-verified
+--tweet-gap
+--tweet-scale
 ```
 
 * `--avatar` — path to a profile picture. It is automatically center-cropped and masked into a circle.
@@ -662,13 +614,61 @@ python reel_recolor.py --avatar "D:\Branding\avatar.png" --display-name "Funnyho
 
 Any combination of `--avatar`, `--display-name`, and `--username` can be used on its own; whichever parts are provided are the parts that get drawn. For example, `--avatar` alone renders just the circular picture with no text.
 
-### Generated Logo Colors
-
 The display name uses the same text color as the recolored template (`--text-color`, or the automatic opposite of `--color`), so it stays legible on whatever background color is chosen. The username is a lighter, muted version of that same color. The verified checkmark badge always stays brand blue, regardless of `--color`.
 
-### Combining with `--logo`
+### Tweet Positioning
 
-`--logo` and the generated-logo options (`--avatar`/`--display-name`/`--username`) cannot be used together. Providing both raises an error explaining to pick one approach.
+Always automatic, positioned relative to the detected movie/picture region (not a fixed pixel location) so it adapts per video:
+
+* **Top edge** below the **bottom edge** of the detected region.
+* **Horizontally centered** within the detected region's width.
+* **Scaled to the width** of the detected region (or a fraction of it, via `--tweet-scale`), height scaled proportionally.
+
+```bash
+python reel_recolor.py --avatar "avatar.png" --display-name "Name" --tweet-gap 60 --tweet-scale 0.6
+```
+
+Defaults:
+
+```python
+TWEET_GAP_PX = 40
+TWEET_SCALE_DEFAULT = 0.75
+```
+
+## Logo Overlay
+
+```text
+--logo
+--logo-gap
+--logo-scale
+--logo-position-mode
+--logo-positions-file
+```
+
+```bash
+python reel_recolor.py --logo "D:\Branding\logo.png"
+```
+
+If `--logo` is omitted, the Logo feature is off entirely (independent of whether Tweet is enabled).
+
+The logo image keeps its own original colors — it is not recolored like the surrounding template — and transparency (for example a PNG with an alpha channel) is preserved.
+
+### Logo Auto Positioning
+
+The default. Same relative-to-detected-region placement as Tweet, with its own independent settings:
+
+```bash
+python reel_recolor.py --logo "D:\Branding\logo.png" --logo-gap 60 --logo-scale 0.75
+```
+
+Defaults:
+
+```python
+LOGO_GAP_PX = 40
+RAW_LOGO_SCALE_DEFAULT = 1.0
+```
+
+A supplied `--logo` image defaults to filling the full detected frame width, since it's assumed to already be sized/designed the way you want. Whenever it ends up narrower than the frame (via `--logo-scale`), it's centered within the frame's width rather than left-aligned.
 
 ## Manual Logo Positioning
 
