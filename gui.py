@@ -5,7 +5,7 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
-from tkinter import colorchooser, filedialog
+from tkinter import colorchooser, filedialog, messagebox
 
 import customtkinter as ctk
 from PIL import Image, ImageTk
@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 from preview import render_preview_frame
 
 import reel_recolor as rr
+import logo_positions
 
 
 SCRIPT_DIR = os.path.dirname(
@@ -43,6 +44,17 @@ LOGO_MODE_NONE = "None"
 LOGO_MODE_FILE = "Logo File"
 LOGO_MODE_GENERATED = "Generated"
 
+POSITION_MODE_AUTO = "Auto"
+POSITION_MODE_FIXED = "Same spot for all"
+POSITION_MODE_PER_REEL = "Per-reel"
+
+# Max size of the click-to-place window's canvas; the 1080x1920
+# reference frame is scaled down to fit within this.
+CLICK_WINDOW_MAX_SIZE = (
+    480,
+    854,
+)
+
 DEFAULT_SETTINGS = {
     "input_folder": os.path.join(SCRIPT_DIR, "input_videos"),
     "output_folder": os.path.join(SCRIPT_DIR, "output_videos"),
@@ -58,6 +70,7 @@ DEFAULT_SETTINGS = {
     "verified": True,
     "logo_gap": 40,
     "logo_scale": 0.75,
+    "logo_position_mode": POSITION_MODE_AUTO,
 }
 
 
@@ -179,6 +192,7 @@ class App(ctk.CTk):
                 self.logo_scale_var.get(),
                 3,
             ),
+            "logo_position_mode": self.logo_position_mode_var.get(),
         }
 
         try:
@@ -293,6 +307,7 @@ class App(ctk.CTk):
         )
 
         self.current_photo_image = None
+        self.preview_manual_position_note = ""
 
         self.preview_video_menu = ctk.CTkOptionMenu(
             frame,
@@ -881,7 +896,103 @@ class App(ctk.CTk):
             is_int=False,
         )
 
-        # Sub-frames are shown/hidden by _on_logo_mode_change.
+        # ------------------------------------------------------
+        # Logo position: auto (existing gap/scale-based placement,
+        # above) vs. manually clicked, at the logo's native size.
+        # ------------------------------------------------------
+
+        self.logo_position_frame = ctk.CTkFrame(
+            parent,
+            fg_color="transparent",
+        )
+
+        ctk.CTkLabel(
+            self.logo_position_frame,
+            text="Logo position",
+            font=ctk.CTkFont(size=12),
+        ).pack(
+            anchor="w",
+            padx=6,
+            pady=(6, 0),
+        )
+
+        self.logo_position_mode_var = tk.StringVar(
+            value=POSITION_MODE_AUTO
+        )
+
+        ctk.CTkSegmentedButton(
+            self.logo_position_frame,
+            values=[
+                POSITION_MODE_AUTO,
+                POSITION_MODE_FIXED,
+                POSITION_MODE_PER_REEL,
+            ],
+            variable=self.logo_position_mode_var,
+            command=self._on_logo_position_mode_change,
+        ).pack(
+            fill="x",
+            padx=6,
+            pady=(2, 8),
+        )
+
+        self.logo_fixed_frame = ctk.CTkFrame(
+            parent,
+            fg_color="transparent",
+        )
+
+        ctk.CTkButton(
+            self.logo_fixed_frame,
+            text="Pick position...",
+            command=self._open_fixed_position_picker,
+        ).pack(
+            fill="x",
+            padx=6,
+            pady=(2, 4),
+        )
+
+        self.logo_fixed_status_label = ctk.CTkLabel(
+            self.logo_fixed_frame,
+            text="Not set yet",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray30", "gray70"),
+        )
+
+        self.logo_fixed_status_label.pack(
+            anchor="w",
+            padx=6,
+            pady=(0, 8),
+        )
+
+        self.logo_per_reel_frame = ctk.CTkFrame(
+            parent,
+            fg_color="transparent",
+        )
+
+        ctk.CTkButton(
+            self.logo_per_reel_frame,
+            text="Annotate positions...",
+            command=self._open_per_reel_annotator,
+        ).pack(
+            fill="x",
+            padx=6,
+            pady=(2, 4),
+        )
+
+        self.logo_per_reel_status_label = ctk.CTkLabel(
+            self.logo_per_reel_frame,
+            text="0 annotated",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray30", "gray70"),
+        )
+
+        self.logo_per_reel_status_label.pack(
+            anchor="w",
+            padx=6,
+            pady=(0, 8),
+        )
+
+        # Sub-frames are shown/hidden by _on_logo_mode_change /
+        # _on_logo_position_mode_change.
 
 
     def _slider_row(
@@ -1143,6 +1254,10 @@ class App(ctk.CTk):
             s.get("logo_scale", 0.75)
         )
 
+        self.logo_position_mode_var.set(
+            s.get("logo_position_mode", POSITION_MODE_AUTO)
+        )
+
         self.logo_mode_var.set(
             s.get("logo_mode", LOGO_MODE_NONE)
         )
@@ -1295,7 +1410,7 @@ class App(ctk.CTk):
 
         self.logo_file_frame.pack_forget()
         self.logo_generated_frame.pack_forget()
-        self.logo_shared_frame.pack_forget()
+        self.logo_position_frame.pack_forget()
 
         if choice == LOGO_MODE_FILE:
 
@@ -1303,7 +1418,7 @@ class App(ctk.CTk):
                 fill="x"
             )
 
-            self.logo_shared_frame.pack(
+            self.logo_position_frame.pack(
                 fill="x"
             )
 
@@ -1312,6 +1427,45 @@ class App(ctk.CTk):
             self.logo_generated_frame.pack(
                 fill="x"
             )
+
+            self.logo_position_frame.pack(
+                fill="x"
+            )
+
+        self._on_logo_position_mode_change(
+            self.logo_position_mode_var.get()
+        )
+
+        self._request_preview_update()
+
+
+    def _on_logo_position_mode_change(self, choice):
+
+        self.logo_shared_frame.pack_forget()
+        self.logo_fixed_frame.pack_forget()
+        self.logo_per_reel_frame.pack_forget()
+
+        if self.logo_mode_var.get() == LOGO_MODE_NONE:
+
+            return
+
+        if choice == POSITION_MODE_FIXED:
+
+            self.logo_fixed_frame.pack(
+                fill="x"
+            )
+
+            self._refresh_logo_position_status()
+
+        elif choice == POSITION_MODE_PER_REEL:
+
+            self.logo_per_reel_frame.pack(
+                fill="x"
+            )
+
+            self._refresh_logo_position_status()
+
+        else:
 
             self.logo_shared_frame.pack(
                 fill="x"
@@ -1342,9 +1496,7 @@ class App(ctk.CTk):
         )
 
 
-    def _on_input_folder_changed(self):
-
-        self.folder_scan_job = None
+    def _list_input_videos(self):
 
         folder = self.input_var.get()
 
@@ -1374,6 +1526,15 @@ class App(ctk.CTk):
 
             videos = []
 
+        return videos
+
+
+    def _on_input_folder_changed(self):
+
+        self.folder_scan_job = None
+
+        videos = self._list_input_videos()
+
         if videos:
 
             self.preview_video_menu.configure(
@@ -1395,6 +1556,670 @@ class App(ctk.CTk):
             )
 
         self._request_preview_update()
+
+
+    # ============================================================
+    # MANUAL LOGO POSITIONING
+    # ============================================================
+
+    def _positions_file_path(self):
+
+        output_folder = (
+            self.output_var.get()
+
+            or
+
+            DEFAULT_SETTINGS["output_folder"]
+        )
+
+        return os.path.join(
+            output_folder,
+            "logo_positions.json",
+        )
+
+
+    def _refresh_logo_position_status(self):
+
+        try:
+
+            data = logo_positions.load_positions(
+                self._positions_file_path()
+            )
+
+        except Exception:
+
+            data = logo_positions.new_positions(
+                "per_reel"
+            )
+
+        fixed = data.get(
+            "fixed_position"
+        )
+
+        if data.get("mode") == "fixed" and fixed:
+
+            self.logo_fixed_status_label.configure(
+                text=f"Set: ({fixed['x']}, {fixed['y']})"
+            )
+
+        else:
+
+            self.logo_fixed_status_label.configure(
+                text="Not set yet"
+            )
+
+        total = len(
+            self._list_input_videos()
+        )
+
+        annotated = len(
+            data.get(
+                "positions",
+                {},
+            )
+        )
+
+        self.logo_per_reel_status_label.configure(
+            text=f"{annotated} / {total} annotated"
+        )
+
+
+    def _extract_raw_frame(self, video_path):
+
+        # Deliberately the raw reference frame, not the recolored
+        # template - fast (one ffmpeg call, no motion detection),
+        # which matters when clicking through a large library, and
+        # the click position is about layout, not final colors.
+
+        (
+            source_width,
+            source_height,
+            fps,
+            duration
+        ) = rr.probe_video(
+            video_path
+        )
+
+        (
+            scaled_width,
+            scaled_height,
+            crop_x,
+            crop_y
+        ) = rr.calculate_resize_crop(
+            source_width,
+            source_height,
+        )
+
+        preprocess_filter = rr.build_preprocess_filter(
+            scaled_width,
+            scaled_height,
+            crop_x,
+            crop_y,
+        )
+
+        frame_rgb = rr.extract_frame_at(
+            video_path,
+            preprocess_filter,
+            rr.REFERENCE_TIME_SECONDS,
+        )
+
+        return Image.fromarray(
+            frame_rgb,
+            mode="RGB",
+        )
+
+
+    def _get_current_logo_native_size(self):
+
+        logo_mode = self.logo_mode_var.get()
+
+        try:
+
+            if logo_mode == LOGO_MODE_FILE:
+
+                path = self.logo_file_var.get()
+
+                if path and os.path.isfile(path):
+
+                    return Image.open(path).size
+
+            elif logo_mode == LOGO_MODE_GENERATED:
+
+                avatar = self.avatar_file_var.get()
+
+                if avatar and os.path.isfile(avatar):
+
+                    background_rgb = rr.hex_to_rgb(
+                        self.bg_color_hex
+                    )
+
+                    rr.TEXT_COLOR = (
+                        None
+                        if self.text_color_auto_var.get()
+                        else self.text_color_hex
+                    )
+
+                    text_rgb = rr.get_text_rgb(
+                        background_rgb
+                    )
+
+                    image = rr.build_generated_logo_image(
+                        self.display_name_var.get() or None,
+                        self.username_var.get() or None,
+                        self.verified_var.get(),
+                        avatar,
+                        text_rgb,
+                        background_rgb,
+                    )
+
+                    return image.size
+
+        except Exception:
+
+            pass
+
+        return None
+
+
+    def _build_click_window(self, title, frame_image):
+
+        win = tk.Toplevel(self)
+
+        win.title(title)
+
+        max_w, max_h = CLICK_WINDOW_MAX_SIZE
+
+        scale = min(
+            max_w / frame_image.width,
+            max_h / frame_image.height,
+            1.0,
+        )
+
+        display_w = max(
+            1,
+            int(frame_image.width * scale),
+        )
+
+        display_h = max(
+            1,
+            int(frame_image.height * scale),
+        )
+
+        display_image = frame_image.resize(
+            (
+                display_w,
+                display_h
+            ),
+            Image.Resampling.LANCZOS,
+        )
+
+        photo = ImageTk.PhotoImage(
+            display_image
+        )
+
+        canvas = tk.Canvas(
+            win,
+            width=display_w,
+            height=display_h,
+            highlightthickness=0,
+            bg="black",
+        )
+
+        canvas.pack(
+            padx=10,
+            pady=10,
+        )
+
+        canvas.create_image(
+            0,
+            0,
+            anchor="nw",
+            image=photo,
+        )
+
+        # Keep a strong reference on the canvas itself, or it gets
+        # garbage collected and the image disappears/errors.
+        canvas.image = photo
+
+        win.content_canvas = canvas
+
+        return (
+            win,
+            canvas,
+            scale,
+        )
+
+
+    def _draw_click_marker(
+        self,
+        canvas,
+        display_x,
+        display_y,
+        logo_native_size,
+        scale,
+    ):
+
+        canvas.delete("marker")
+
+        r = 7
+
+        canvas.create_line(
+            display_x - r, display_y,
+            display_x + r, display_y,
+            fill="#FF3B30", width=2, tags="marker",
+        )
+
+        canvas.create_line(
+            display_x, display_y - r,
+            display_x, display_y + r,
+            fill="#FF3B30", width=2, tags="marker",
+        )
+
+        if logo_native_size:
+
+            box_w = logo_native_size[0] * scale
+            box_h = logo_native_size[1] * scale
+
+            canvas.create_rectangle(
+                display_x - box_w / 2,
+                display_y - box_h / 2,
+                display_x + box_w / 2,
+                display_y + box_h / 2,
+                outline="#34C759",
+                width=2,
+                dash=(5, 3),
+                tags="marker",
+            )
+
+
+    def _open_fixed_position_picker(self):
+
+        videos = self._list_input_videos()
+
+        if not videos:
+
+            messagebox.showerror(
+                "No videos",
+                "No videos found in the input folder.",
+            )
+
+            return
+
+        video_path = os.path.join(
+            self.input_var.get(),
+            videos[0],
+        )
+
+        try:
+
+            frame_image = self._extract_raw_frame(
+                video_path
+            )
+
+        except Exception as exc:
+
+            messagebox.showerror(
+                "Error",
+                f"Could not read a frame from {videos[0]}:\n{exc}",
+            )
+
+            return
+
+        logo_native_size = self._get_current_logo_native_size()
+
+        win, canvas, scale = self._build_click_window(
+            f"Pick logo position - reference: {videos[0]}",
+            frame_image,
+        )
+
+        def on_click(event):
+
+            real_x = int(
+                event.x / scale
+            )
+
+            real_y = int(
+                event.y / scale
+            )
+
+            logo_positions.set_fixed_position(
+                self._positions_file_path(),
+                real_x,
+                real_y,
+            )
+
+            self._refresh_logo_position_status()
+
+            win.destroy()
+
+        canvas.bind(
+            "<Button-1>",
+            on_click,
+        )
+
+        ctk.CTkLabel(
+            win,
+            text=(
+                "Click anywhere on the frame to set the logo's "
+                "center for every video."
+            ),
+            wraplength=CLICK_WINDOW_MAX_SIZE[0],
+        ).pack(
+            pady=(0, 10)
+        )
+
+
+    def _open_per_reel_annotator(self):
+
+        videos = self._list_input_videos()
+
+        if not videos:
+
+            messagebox.showerror(
+                "No videos",
+                "No videos found in the input folder.",
+            )
+
+            return
+
+        positions_path = self._positions_file_path()
+
+        data = logo_positions.load_positions(
+            positions_path
+        )
+
+        logo_native_size = self._get_current_logo_native_size()
+
+        folder = self.input_var.get()
+
+        start_index = 0
+
+        for i, name in enumerate(videos):
+
+            if name not in data["positions"]:
+
+                start_index = i
+
+                break
+
+        state = {
+            "index": start_index
+        }
+
+        win = tk.Toplevel(self)
+
+        win.title(
+            "Annotate logo positions"
+        )
+
+        info_label = ctk.CTkLabel(
+            win,
+            text="",
+            font=ctk.CTkFont(size=13),
+            wraplength=CLICK_WINDOW_MAX_SIZE[0],
+        )
+
+        info_label.pack(
+            pady=(10, 4)
+        )
+
+        canvas_container = ctk.CTkFrame(
+            win,
+            fg_color="transparent",
+        )
+
+        canvas_container.pack(
+            padx=10,
+            pady=4,
+        )
+
+        canvas_state = {
+            "canvas": None
+        }
+
+        def load_current():
+
+            filename = videos[
+                state["index"]
+            ]
+
+            video_path = os.path.join(
+                folder,
+                filename,
+            )
+
+            try:
+
+                frame_image = self._extract_raw_frame(
+                    video_path
+                )
+
+            except Exception as exc:
+
+                messagebox.showerror(
+                    "Error",
+                    f"Could not read a frame from "
+                    f"{filename}:\n{exc}",
+                )
+
+                return
+
+            max_w, max_h = CLICK_WINDOW_MAX_SIZE
+
+            scale = min(
+                max_w / frame_image.width,
+                max_h / frame_image.height,
+                1.0,
+            )
+
+            display_w = max(
+                1,
+                int(frame_image.width * scale),
+            )
+
+            display_h = max(
+                1,
+                int(frame_image.height * scale),
+            )
+
+            display_image = frame_image.resize(
+                (
+                    display_w,
+                    display_h
+                ),
+                Image.Resampling.LANCZOS,
+            )
+
+            photo = ImageTk.PhotoImage(
+                display_image
+            )
+
+            if canvas_state["canvas"] is not None:
+
+                canvas_state["canvas"].destroy()
+
+            canvas = tk.Canvas(
+                canvas_container,
+                width=display_w,
+                height=display_h,
+                highlightthickness=0,
+                bg="black",
+            )
+
+            canvas.pack()
+
+            canvas.create_image(
+                0,
+                0,
+                anchor="nw",
+                image=photo,
+            )
+
+            canvas.image = photo
+
+            canvas_state["canvas"] = canvas
+            canvas_state["scale"] = scale
+
+            # Unambiguous handle for the current content canvas -
+            # customtkinter widgets can use internal tk.Canvas
+            # instances of their own, so a tree search for "any
+            # Canvas" isn't reliable.
+            win.content_canvas = canvas
+
+            existing = data["positions"].get(
+                filename
+            )
+
+            if existing:
+
+                self._draw_click_marker(
+                    canvas,
+                    existing["x"] * scale,
+                    existing["y"] * scale,
+                    logo_native_size,
+                    scale,
+                )
+
+            annotated_count = len(
+                data["positions"]
+            )
+
+            status_suffix = (
+                "  (already set - click to overwrite)"
+                if existing
+                else ""
+            )
+
+            info_label.configure(
+                text=(
+                    f"{annotated_count} / {len(videos)} annotated "
+                    f"total  |  viewing {state['index'] + 1} / "
+                    f"{len(videos)}: {filename}{status_suffix}"
+                )
+            )
+
+            def on_click(event):
+
+                real_x = int(
+                    event.x / scale
+                )
+
+                real_y = int(
+                    event.y / scale
+                )
+
+                logo_positions.set_reel_position(
+                    positions_path,
+                    filename,
+                    real_x,
+                    real_y,
+                )
+
+                data["positions"][filename] = {
+                    "x": real_x,
+                    "y": real_y,
+                }
+
+                self._refresh_logo_position_status()
+
+                go_next()
+
+            canvas.bind(
+                "<Button-1>",
+                on_click,
+            )
+
+
+        def go_next():
+
+            if state["index"] + 1 < len(videos):
+
+                state["index"] += 1
+
+                load_current()
+
+            else:
+
+                messagebox.showinfo(
+                    "Done",
+                    "That's the last video in the folder.",
+                )
+
+
+        def go_back():
+
+            if state["index"] > 0:
+
+                state["index"] -= 1
+
+                load_current()
+
+
+        nav_row = ctk.CTkFrame(
+            win,
+            fg_color="transparent",
+        )
+
+        nav_row.pack(
+            pady=(4, 10)
+        )
+
+        ctk.CTkButton(
+            nav_row,
+            text="< Back",
+            width=90,
+            command=go_back,
+        ).pack(
+            side="left",
+            padx=4,
+        )
+
+        ctk.CTkButton(
+            nav_row,
+            text="Skip / Next >",
+            width=120,
+            command=go_next,
+        ).pack(
+            side="left",
+            padx=4,
+        )
+
+        ctk.CTkButton(
+            nav_row,
+            text="Close",
+            width=90,
+            command=win.destroy,
+        ).pack(
+            side="left",
+            padx=4,
+        )
+
+        ctk.CTkLabel(
+            win,
+            text=(
+                "Click on the frame to place the logo's center "
+                "and save - this also advances to the next video. "
+                "Closing at any point keeps everything clicked so "
+                "far; reopening resumes from the next un-annotated "
+                "video."
+            ),
+            wraplength=CLICK_WINDOW_MAX_SIZE[0],
+        ).pack(
+            pady=(0, 10)
+        )
+
+        def on_window_close():
+
+            self._refresh_logo_position_status()
+
+            win.destroy()
+
+        win.protocol(
+            "WM_DELETE_WINDOW",
+            on_window_close,
+        )
+
+        load_current()
 
 
     # ============================================================
@@ -1444,6 +2269,12 @@ class App(ctk.CTk):
 
         logo_mode_choice = self.logo_mode_var.get()
 
+        manual_position_active = (
+            self.logo_position_mode_var.get()
+            !=
+            POSITION_MODE_AUTO
+        )
+
         logo_mode = {
             LOGO_MODE_NONE: "none",
             LOGO_MODE_FILE: "file",
@@ -1451,6 +2282,25 @@ class App(ctk.CTk):
         }.get(
             logo_mode_choice,
             "none",
+        )
+
+        # Manual logo positioning doesn't relate to this preview's
+        # reference video the way auto-placement does - showing an
+        # auto-computed logo position here would be misleading, so
+        # this pane just shows the template/video without it. Use
+        # the position picker windows for a WYSIWYG preview of
+        # manual placement instead.
+        if manual_position_active:
+
+            logo_mode = "none"
+
+        self.preview_manual_position_note = (
+            (
+                "\n(Manual logo positioning is active - use the "
+                "position picker for a placement preview.)"
+            )
+            if manual_position_active
+            else ""
         )
 
         params = dict(
@@ -1571,7 +2421,15 @@ class App(ctk.CTk):
             )
 
         self.preview_status_label.configure(
-            text="\n".join(status_lines)
+            text=(
+                "\n".join(status_lines)
+                +
+                getattr(
+                    self,
+                    "preview_manual_position_note",
+                    "",
+                )
+            )
         )
 
 
@@ -1675,15 +2533,17 @@ class App(ctk.CTk):
 
         logo_mode = self.logo_mode_var.get()
 
+        position_mode = self.logo_position_mode_var.get()
+
+        manual_position = (
+            position_mode != POSITION_MODE_AUTO
+        )
+
         if logo_mode == LOGO_MODE_FILE:
 
             args += [
                 "--logo",
                 self.logo_file_var.get(),
-                "--logo-gap",
-                str(int(self.logo_gap_var.get())),
-                "--logo-scale",
-                f"{self.logo_scale_var.get():.3f}",
             ]
 
         elif logo_mode == LOGO_MODE_GENERATED:
@@ -1693,10 +2553,6 @@ class App(ctk.CTk):
                 self.avatar_file_var.get(),
                 "--display-name",
                 self.display_name_var.get(),
-                "--logo-gap",
-                str(int(self.logo_gap_var.get())),
-                "--logo-scale",
-                f"{self.logo_scale_var.get():.3f}",
             ]
 
             if self.username_var.get():
@@ -1711,6 +2567,26 @@ class App(ctk.CTk):
                 if self.verified_var.get()
                 else "--no-verified"
             ]
+
+        if logo_mode != LOGO_MODE_NONE:
+
+            if manual_position:
+
+                args += [
+                    "--logo-position-mode",
+                    "manual",
+                    "--logo-positions-file",
+                    self._positions_file_path(),
+                ]
+
+            else:
+
+                args += [
+                    "--logo-gap",
+                    str(int(self.logo_gap_var.get())),
+                    "--logo-scale",
+                    f"{self.logo_scale_var.get():.3f}",
+                ]
 
         return args
 

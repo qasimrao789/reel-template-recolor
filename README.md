@@ -241,6 +241,7 @@ Features:
 * Encoder mode selection
 * Logo mode: none, a supplied logo file, or a generated branding block (avatar/name/username/verified), matching the CLI's `--logo` vs `--avatar`/`--display-name`/`--username`/`--verified` options
 * Sliders for logo gap and logo scale that re-render the preview live, so the right size/spacing can be dialed in visually instead of guessing `--logo-scale` values and re-running the CLI
+* Click-to-place manual logo positioning — "Same spot for all" (one click, reused for every video) or "Per-reel" (click through videos one at a time, with progress tracking and resume across sessions) — see [Manual Logo Positioning](#manual-logo-positioning)
 * A log panel showing the same per-video output the CLI prints, with Start/Stop controls for the batch run
 * Settings (folders, colors, logo config) are remembered between runs in `gui_settings.json` (not committed to the repository)
 
@@ -317,6 +318,8 @@ The current options are:
 --display-name
 --username
 --verified / --no-verified
+--logo-position-mode
+--logo-positions-file
 ```
 
 ## Choose an Input Folder
@@ -667,6 +670,38 @@ The display name uses the same text color as the recolored template (`--text-col
 
 `--logo` and the generated-logo options (`--avatar`/`--display-name`/`--username`) cannot be used together. Providing both raises an error explaining to pick one approach.
 
+## Manual Logo Positioning
+
+Instead of auto-placing the logo below the detected frame, its position can be set by hand — click a point on the video and the logo is centered there, **at its own native pixel size, with no scaling**. There are two ways to pick points, both driven from the [GUI](#gui):
+
+* **Same spot for all** — click once on a reference video; that point is reused for every video in the folder, including ones added later.
+* **Per-reel** — click through videos one at a time, each saved individually as you go. Positions are written to disk immediately on each click, so closing the annotator mid-session never loses progress, and reopening it resumes at the next un-annotated video.
+
+Both are stored in a JSON file (`<output folder>/logo_positions.json` by default):
+
+```json
+{
+  "mode": "per_reel",
+  "fixed_position": null,
+  "positions": {
+    "1.mp4": {"x": 320, "y": 1010},
+    "2.mp4": {"x": 300, "y": 990}
+  }
+}
+```
+
+### Processing With Manual Positions
+
+```bash
+python reel_recolor.py --logo "D:\Branding\logo.png" --logo-position-mode manual
+```
+
+`--logo-position-mode manual` (default `auto`) makes the batch use whatever's in the positions file (`--logo-positions-file` to point at a different one). Whether it behaves as "same spot for all" or "per-reel" is read from the file's own `mode` field, not a separate CLI flag — so the GUI's picker and the CLI processing step always agree on what was actually annotated.
+
+**In per-reel mode, a video with no saved position yet is skipped** — not auto-placed, not blocked on — printed as `SKIP unannotated: <file>` and counted separately in the batch summary. This is what makes annotating a large library incrementally practical: process however many videos are annotated so far, come back later, annotate more, and process again — already-completed outputs are still skipped as usual (see [Output Naming and Resuming](#output-naming-and-resuming)).
+
+`--logo-gap`/`--logo-scale` don't apply in manual mode, since there's no auto-placement or scaling happening.
+
 ## Combine All Options
 
 All command-line options can be combined.
@@ -918,6 +953,7 @@ reel-template-recolor/
 ├── reel_recolor.py
 ├── gui.py
 ├── preview.py
+├── logo_positions.py
 ├── requirements.txt
 ├── .gitignore
 ├── LICENSE

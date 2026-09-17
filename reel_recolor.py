@@ -16,6 +16,8 @@ from PIL import (
     ImageFont,
 )
 
+import logo_positions
+
 
 # ============================================================
 # SETTINGS
@@ -70,6 +72,27 @@ LOGO_SCALE = None
 
 RAW_LOGO_SCALE_DEFAULT = 1.0
 GENERATED_LOGO_SCALE_DEFAULT = 0.75
+
+# How the logo is positioned:
+# "auto"   = compute_logo_geometry(): centered under the detected
+#            frame, scaled by LOGO_SCALE (default).
+# "manual" = a point clicked in the GUI's logo position picker,
+#            loaded from LOGO_POSITIONS_FILE, at the logo's own
+#            native size (no scaling). Whether that file holds
+#            one shared point for every video ("fixed") or one
+#            per video filename ("per_reel") lives in the file
+#            itself (see logo_positions.py) - in per_reel mode a
+#            video with no saved point is skipped, not
+#            auto-placed.
+LOGO_POSITION_MODE = "auto"
+
+# Resolved to <OUTPUT_FOLDER>/logo_positions.json by default; see
+# main().
+LOGO_POSITIONS_FILE = None
+
+# Loaded once per run by main() when LOGO_POSITION_MODE isn't
+# "auto"; see logo_positions.load_positions().
+LOGO_POSITIONS_DATA = None
 
 # ------------------------------------------------------------
 # Generated branding block (avatar + name + checkmark + handle).
@@ -1406,6 +1429,35 @@ def compute_logo_geometry(
     )
 
 
+def compute_manual_logo_geometry(
+    center_x,
+    center_y,
+    logo_width,
+    logo_height,
+):
+
+    # Native size, no scaling: the logo is centered exactly on a
+    # user-picked point (LOGO_POSITION_MODE = "fixed" or
+    # "per_reel"), not positioned relative to the detected frame.
+
+    logo_x = (
+        center_x
+        -
+        logo_width // 2
+    )
+
+    logo_y = (
+        center_y
+        -
+        logo_height // 2
+    )
+
+    return (
+        logo_x,
+        logo_y
+    )
+
+
 # ============================================================
 # GENERATED BRANDING BLOCK
 #
@@ -2495,6 +2547,7 @@ def encode_with_static_template(
     y,
     picture_width,
     picture_height,
+    manual_logo_center=None,
 ):
 
 
@@ -2526,7 +2579,48 @@ def encode_with_static_template(
     )
 
 
-    if logo_enabled:
+    if logo_enabled and manual_logo_center is not None:
+
+        logo_native_width, logo_native_height = Image.open(
+            LOGO_PATH
+        ).size
+
+        (
+            logo_x,
+            logo_y
+        ) = compute_manual_logo_geometry(
+            manual_logo_center[0],
+            manual_logo_center[1],
+            logo_native_width,
+            logo_native_height,
+        )
+
+        filter_complex += (
+
+            f"[base]"
+            f"[movie]"
+            f"overlay="
+            f"{x}:"
+            f"{y}:"
+            f"shortest=1"
+            f"[composited];"
+
+            f"[2:v]"
+            f"format=rgba"
+            f"[logo];"
+
+            f"[composited]"
+            f"[logo]"
+            f"overlay="
+            f"{logo_x}:"
+            f"{logo_y}:"
+            f"shortest=1,"
+            f"format=yuv420p"
+            f"[v]"
+        )
+
+
+    elif logo_enabled:
 
         (
             logo_x,
@@ -2786,6 +2880,34 @@ def process_video(
 
 
     # ========================================================
+    # RESOLVE MANUAL LOGO POSITION
+    #
+    # "fixed"/"per_reel": a video with no saved click position is
+    # left alone entirely (not auto-placed, not processed without
+    # a logo) until it's annotated, so a large library can be
+    # annotated and processed incrementally over many sessions.
+    # ========================================================
+
+    manual_logo_center = None
+
+    if LOGO_POSITION_MODE == "manual":
+
+        manual_logo_center = logo_positions.get_position_for(
+            LOGO_POSITIONS_DATA,
+            filename,
+        )
+
+        if manual_logo_center is None:
+
+            print(
+                f"SKIP unannotated: "
+                f"{filename}"
+            )
+
+            return "unannotated"
+
+
+    # ========================================================
     # PRE-SCALE
     # ========================================================
 
@@ -3006,7 +3128,39 @@ def process_video(
     )
 
 
-    if LOGO_PATH is not None:
+    if LOGO_PATH is not None and manual_logo_center is not None:
+
+        logo_native_width, logo_native_height = Image.open(
+            LOGO_PATH
+        ).size
+
+        (
+            logo_x,
+            logo_y
+        ) = compute_manual_logo_geometry(
+            manual_logo_center[0],
+            manual_logo_center[1],
+            logo_native_width,
+            logo_native_height,
+        )
+
+        print(
+            "Logo overlay (manual position): "
+
+            f"{LOGO_PATH} "
+
+            f"(center={manual_logo_center}, "
+
+            f"x={logo_x}, "
+
+            f"y={logo_y}, "
+
+            f"width={logo_native_width}, "
+
+            f"height={logo_native_height})"
+        )
+
+    elif LOGO_PATH is not None:
 
         (
             logo_x,
@@ -3098,6 +3252,8 @@ def process_video(
             picture_width,
 
             picture_height,
+
+            manual_logo_center,
         )
 
 
@@ -3133,7 +3289,7 @@ def process_video(
 
 def main():
 
-    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, ENCODER_MODE, VIDEO_ENCODER, LOGO_PATH, LOGO_GAP_PX, LOGO_SCALE, AVATAR_PATH, DISPLAY_NAME, USERNAME, VERIFIED_BADGE
+    global INPUT_FOLDER, OUTPUT_FOLDER, TEMPLATE_FOLDER, TARGET_COLOR, TEXT_COLOR, ENCODER_MODE, VIDEO_ENCODER, LOGO_PATH, LOGO_GAP_PX, LOGO_SCALE, AVATAR_PATH, DISPLAY_NAME, USERNAME, VERIFIED_BADGE, LOGO_POSITION_MODE, LOGO_POSITIONS_FILE, LOGO_POSITIONS_DATA
 
     parser = argparse.ArgumentParser(
         description="Recolor vertical video templates."
@@ -3245,6 +3401,35 @@ def main():
         ),
     )
 
+    parser.add_argument(
+        "--logo-position-mode",
+        choices=(
+            "auto",
+            "manual",
+        ),
+        default=LOGO_POSITION_MODE,
+        help=(
+            '"auto" (default) positions the logo below the detected '
+            'frame as usual. "manual" uses points clicked in the '
+            "GUI's logo position picker, saved to "
+            "--logo-positions-file, at the logo's native size instead "
+            "of auto-scaling. Whether that file holds one shared "
+            'point ("fixed") or one per video ("per_reel") is set by '
+            "the picker itself, not this flag. In per_reel mode, a "
+            "video with no saved point is skipped rather than "
+            "auto-placed."
+        ),
+    )
+
+    parser.add_argument(
+        "--logo-positions-file",
+        default=LOGO_POSITIONS_FILE,
+        help=(
+            "Path to the JSON file of manually-clicked logo "
+            "positions. Default: <output folder>/logo_positions.json"
+        ),
+    )
+
     args = parser.parse_args()
 
     INPUT_FOLDER = args.input
@@ -3259,6 +3444,8 @@ def main():
     DISPLAY_NAME = args.display_name
     USERNAME = args.username
     VERIFIED_BADGE = args.verified
+    LOGO_POSITION_MODE = args.logo_position_mode
+    LOGO_POSITIONS_FILE = args.logo_positions_file
 
     generated_logo_requested = (
         AVATAR_PATH is not None
@@ -3319,6 +3506,24 @@ def main():
             f"Avatar file not found: {AVATAR_PATH}"
         )
 
+    if (
+        LOGO_POSITION_MODE != "auto"
+
+        and
+
+        LOGO_PATH is None
+
+        and
+
+        not generated_logo_requested
+    ):
+
+        raise RuntimeError(
+            f"--logo-position-mode {LOGO_POSITION_MODE} requires a "
+            "logo to position: pass --logo or "
+            "--avatar/--display-name."
+        )
+
     TEMPLATE_FOLDER = os.path.join(
         OUTPUT_FOLDER,
         "_static_templates"
@@ -3333,6 +3538,35 @@ def main():
         TEMPLATE_FOLDER,
         exist_ok=True
     )
+
+    if LOGO_POSITIONS_FILE is None:
+
+        LOGO_POSITIONS_FILE = os.path.join(
+            OUTPUT_FOLDER,
+            "logo_positions.json"
+        )
+
+    if LOGO_POSITION_MODE == "manual":
+
+        LOGO_POSITIONS_DATA = logo_positions.load_positions(
+            LOGO_POSITIONS_FILE
+        )
+
+        if (
+
+            LOGO_POSITIONS_DATA["mode"] == "fixed"
+
+            and
+
+            LOGO_POSITIONS_DATA["fixed_position"] is None
+        ):
+
+            raise RuntimeError(
+                f"--logo-position-mode manual, but "
+                f"{LOGO_POSITIONS_FILE} has no fixed_position set "
+                "yet. Pick a position first (GUI: \"Same spot for "
+                "all\")."
+            )
 
     VIDEO_ENCODER = check_tools(
         ENCODER_MODE
@@ -3482,6 +3716,29 @@ def main():
         )
 
 
+    if LOGO_POSITION_MODE == "manual":
+
+        if LOGO_POSITIONS_DATA["mode"] == "fixed":
+
+            print(
+                "Logo position mode: manual (fixed point "
+                f"{LOGO_POSITIONS_DATA['fixed_position']} for every "
+                "video)"
+            )
+
+        else:
+
+            annotated_count = len(
+                LOGO_POSITIONS_DATA["positions"]
+            )
+
+            print(
+                "Logo position mode: manual (per-reel, "
+                f"{annotated_count} video(s) currently annotated in "
+                f"{LOGO_POSITIONS_FILE})"
+            )
+
+
     print(
 
         f"Encoder mode: "
@@ -3570,6 +3827,8 @@ def main():
 
     skipped_count = 0
 
+    unannotated_count = 0
+
     error_count = 0
 
 
@@ -3585,6 +3844,11 @@ def main():
             if result == "skipped":
 
                 skipped_count += 1
+
+
+            elif result == "unannotated":
+
+                unannotated_count += 1
 
 
             else:
@@ -3681,6 +3945,15 @@ def main():
         f"Skipped already completed: "
         f"{skipped_count}"
     )
+
+
+    if LOGO_POSITION_MODE == "manual":
+
+        print(
+
+            f"Skipped (no saved logo position yet): "
+            f"{unannotated_count}"
+        )
 
 
     print(
