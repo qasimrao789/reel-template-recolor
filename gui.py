@@ -1411,6 +1411,9 @@ class App(ctk.CTk):
         self.logo_file_frame.pack_forget()
         self.logo_generated_frame.pack_forget()
         self.logo_position_frame.pack_forget()
+        self.logo_shared_frame.pack_forget()
+        self.logo_fixed_frame.pack_forget()
+        self.logo_per_reel_frame.pack_forget()
 
         if choice == LOGO_MODE_FILE:
 
@@ -1418,8 +1421,16 @@ class App(ctk.CTk):
                 fill="x"
             )
 
+            # Manual click-to-place positioning is a Logo File
+            # feature only. It's kept deliberately separate from
+            # Generated (the avatar/name/handle block) below, which
+            # always uses auto gap/scale placement.
             self.logo_position_frame.pack(
                 fill="x"
+            )
+
+            self._on_logo_position_mode_change(
+                self.logo_position_mode_var.get()
             )
 
         elif choice == LOGO_MODE_GENERATED:
@@ -1428,13 +1439,9 @@ class App(ctk.CTk):
                 fill="x"
             )
 
-            self.logo_position_frame.pack(
+            self.logo_shared_frame.pack(
                 fill="x"
             )
-
-        self._on_logo_position_mode_change(
-            self.logo_position_mode_var.get()
-        )
 
         self._request_preview_update()
 
@@ -2581,10 +2588,18 @@ class App(ctk.CTk):
 
         logo_mode = self.logo_mode_var.get()
 
-        position_mode = self.logo_position_mode_var.get()
-
+        # Manual click-to-place positioning only ever applies to
+        # Logo File - Generated (the tweet-style block) always
+        # uses auto gap/scale placement, regardless of whatever
+        # logo_position_mode_var happens to hold.
         manual_position = (
-            position_mode != POSITION_MODE_AUTO
+            logo_mode == LOGO_MODE_FILE
+
+            and
+
+            self.logo_position_mode_var.get()
+            !=
+            POSITION_MODE_AUTO
         )
 
         if logo_mode == LOGO_MODE_FILE:
