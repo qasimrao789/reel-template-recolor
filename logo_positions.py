@@ -123,6 +123,73 @@ def set_reel_position(path, filename, x, y):
     return data
 
 
+def set_no_logo(path, filename):
+
+    # Marks a video as deliberately having no logo, distinct from
+    # "not yet annotated" (missing entirely from "positions").
+    # process_video() still processes/recolors the video, it just
+    # skips the logo overlay for this one.
+
+    data = load_positions(
+        path
+    )
+
+    data["mode"] = MODE_PER_REEL
+
+    data["positions"][
+        filename
+    ] = {
+        "skip": True,
+    }
+
+    save_positions(
+        path,
+        data,
+    )
+
+    return data
+
+
+def is_marked_no_logo(data, filename):
+
+    entry = data.get(
+        "positions",
+        {},
+    ).get(
+        filename
+    )
+
+    return bool(
+        entry
+    ) and entry.get(
+        "skip",
+        False,
+    )
+
+
+def is_annotated(data, filename):
+
+    # True once a video has been "decided" one way or another
+    # (a position, or marked no-logo) - used to tell a genuinely
+    # pending video apart from one that's done.
+
+    mode = data.get(
+        "mode",
+        MODE_PER_REEL,
+    )
+
+    if mode == MODE_FIXED:
+
+        return data.get(
+            "fixed_position"
+        ) is not None
+
+    return filename in data.get(
+        "positions",
+        {},
+    )
+
+
 def get_position_for(data, filename):
 
     mode = data.get(
@@ -152,7 +219,10 @@ def get_position_for(data, filename):
         filename
     )
 
-    if entry is None:
+    if entry is None or entry.get(
+        "skip",
+        False,
+    ):
 
         return None
 

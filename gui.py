@@ -2070,7 +2070,14 @@ class App(ctk.CTk):
                 filename
             )
 
-            if existing:
+            marked_no_logo = bool(
+                existing
+            ) and existing.get(
+                "skip",
+                False,
+            )
+
+            if existing and not marked_no_logo:
 
                 self._draw_click_marker(
                     canvas,
@@ -2084,11 +2091,19 @@ class App(ctk.CTk):
                 data["positions"]
             )
 
-            status_suffix = (
-                "  (already set - click to overwrite)"
-                if existing
-                else ""
-            )
+            if marked_no_logo:
+
+                status_suffix = "  (marked: no logo)"
+
+            elif existing:
+
+                status_suffix = (
+                    "  (already set - click to overwrite)"
+                )
+
+            else:
+
+                status_suffix = ""
 
             info_label.configure(
                 text=(
@@ -2155,6 +2170,26 @@ class App(ctk.CTk):
                 load_current()
 
 
+        def mark_no_logo():
+
+            filename = videos[
+                state["index"]
+            ]
+
+            logo_positions.set_no_logo(
+                positions_path,
+                filename,
+            )
+
+            data["positions"][filename] = {
+                "skip": True,
+            }
+
+            self._refresh_logo_position_status()
+
+            go_next()
+
+
         nav_row = ctk.CTkFrame(
             win,
             fg_color="transparent",
@@ -2167,41 +2202,54 @@ class App(ctk.CTk):
         ctk.CTkButton(
             nav_row,
             text="< Back",
-            width=90,
+            width=80,
             command=go_back,
         ).pack(
             side="left",
-            padx=4,
+            padx=3,
         )
 
         ctk.CTkButton(
             nav_row,
-            text="Skip / Next >",
+            text="No logo >",
+            width=100,
+            fg_color="#8B6F2E",
+            hover_color="#6E5824",
+            command=mark_no_logo,
+        ).pack(
+            side="left",
+            padx=3,
+        )
+
+        ctk.CTkButton(
+            nav_row,
+            text="Skip for now >",
             width=120,
             command=go_next,
         ).pack(
             side="left",
-            padx=4,
+            padx=3,
         )
 
         ctk.CTkButton(
             nav_row,
             text="Close",
-            width=90,
+            width=80,
             command=win.destroy,
         ).pack(
             side="left",
-            padx=4,
+            padx=3,
         )
 
         ctk.CTkLabel(
             win,
             text=(
-                "Click on the frame to place the logo's center "
-                "and save - this also advances to the next video. "
-                "Closing at any point keeps everything clicked so "
-                "far; reopening resumes from the next un-annotated "
-                "video."
+                "Click on the frame to place the logo's center and "
+                "save. \"No logo\" marks this video to be processed "
+                "without one. \"Skip for now\" leaves it undecided "
+                "for later. Closing at any point keeps everything "
+                "decided so far; reopening resumes from the next "
+                "undecided video."
             ),
             wraplength=CLICK_WINDOW_MAX_SIZE[0],
         ).pack(

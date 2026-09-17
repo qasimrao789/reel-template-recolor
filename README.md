@@ -675,7 +675,9 @@ The display name uses the same text color as the recolored template (`--text-col
 Instead of auto-placing the logo below the detected frame, its position can be set by hand — click a point on the video and the logo is centered there, **at its own native pixel size, with no scaling**. There are two ways to pick points, both driven from the [GUI](#gui):
 
 * **Same spot for all** — click once on a reference video; that point is reused for every video in the folder, including ones added later.
-* **Per-reel** — click through videos one at a time, each saved individually as you go. Positions are written to disk immediately on each click, so closing the annotator mid-session never loses progress, and reopening it resumes at the next un-annotated video.
+* **Per-reel** — click through videos one at a time, each saved individually as you go. Positions are written to disk immediately on each click, so closing the annotator mid-session never loses progress, and reopening it resumes at the next un-decided video.
+
+In per-reel mode, each video has three possible states: not yet decided (still pending, skipped when processing), a saved click position, or explicitly marked **"No logo"** — processed and recolored normally, just without a logo overlay. This is different from the **"Skip for now"** button, which leaves a video undecided for a future session rather than deciding "no logo" for it.
 
 Both are stored in a JSON file (`<output folder>/logo_positions.json` by default):
 
@@ -685,10 +687,13 @@ Both are stored in a JSON file (`<output folder>/logo_positions.json` by default
   "fixed_position": null,
   "positions": {
     "1.mp4": {"x": 320, "y": 1010},
-    "2.mp4": {"x": 300, "y": 990}
+    "2.mp4": {"skip": true},
+    "3.mp4": {"x": 300, "y": 990}
   }
 }
 ```
+
+(A video like `4.mp4` that doesn't appear in `positions` at all is still pending. `2.mp4` here is decided as "no logo".)
 
 ### Processing With Manual Positions
 
@@ -698,7 +703,7 @@ python reel_recolor.py --logo "D:\Branding\logo.png" --logo-position-mode manual
 
 `--logo-position-mode manual` (default `auto`) makes the batch use whatever's in the positions file (`--logo-positions-file` to point at a different one). Whether it behaves as "same spot for all" or "per-reel" is read from the file's own `mode` field, not a separate CLI flag — so the GUI's picker and the CLI processing step always agree on what was actually annotated.
 
-**In per-reel mode, a video with no saved position yet is skipped** — not auto-placed, not blocked on — printed as `SKIP unannotated: <file>` and counted separately in the batch summary. This is what makes annotating a large library incrementally practical: process however many videos are annotated so far, come back later, annotate more, and process again — already-completed outputs are still skipped as usual (see [Output Naming and Resuming](#output-naming-and-resuming)).
+**In per-reel mode, a video not yet decided one way or another is skipped** — not auto-placed, not blocked on — printed as `SKIP unannotated: <file>` and counted separately in the batch summary. A video marked "No logo" is processed and recolored normally, just without a logo. This is what makes annotating a large library incrementally practical: process however many videos are decided so far, come back later, decide more, and process again — already-completed outputs are still skipped as usual (see [Output Naming and Resuming](#output-naming-and-resuming)).
 
 `--logo-gap`/`--logo-scale` don't apply in manual mode, since there's no auto-placement or scaling happening.
 

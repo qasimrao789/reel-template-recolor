@@ -2548,11 +2548,14 @@ def encode_with_static_template(
     picture_width,
     picture_height,
     manual_logo_center=None,
+    force_no_logo=False,
 ):
 
 
     logo_enabled = (
         LOGO_PATH is not None
+        and
+        not force_no_logo
     )
 
 
@@ -2886,18 +2889,21 @@ def process_video(
     # left alone entirely (not auto-placed, not processed without
     # a logo) until it's annotated, so a large library can be
     # annotated and processed incrementally over many sessions.
+    # A video can also be explicitly marked "no logo" (distinct
+    # from "not yet annotated") - it still gets processed and
+    # recolored normally, just without a logo overlay.
     # ========================================================
 
     manual_logo_center = None
 
+    force_no_logo = False
+
     if LOGO_POSITION_MODE == "manual":
 
-        manual_logo_center = logo_positions.get_position_for(
+        if not logo_positions.is_annotated(
             LOGO_POSITIONS_DATA,
             filename,
-        )
-
-        if manual_logo_center is None:
+        ):
 
             print(
                 f"SKIP unannotated: "
@@ -2905,6 +2911,20 @@ def process_video(
             )
 
             return "unannotated"
+
+        if logo_positions.is_marked_no_logo(
+            LOGO_POSITIONS_DATA,
+            filename,
+        ):
+
+            force_no_logo = True
+
+        else:
+
+            manual_logo_center = logo_positions.get_position_for(
+                LOGO_POSITIONS_DATA,
+                filename,
+            )
 
 
     # ========================================================
@@ -3128,7 +3148,13 @@ def process_video(
     )
 
 
-    if LOGO_PATH is not None and manual_logo_center is not None:
+    if force_no_logo:
+
+        print(
+            "Logo: skipped for this video (marked \"no logo\")"
+        )
+
+    elif LOGO_PATH is not None and manual_logo_center is not None:
 
         logo_native_width, logo_native_height = Image.open(
             LOGO_PATH
@@ -3254,6 +3280,8 @@ def process_video(
             picture_height,
 
             manual_logo_center,
+
+            force_no_logo,
         )
 
 
