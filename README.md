@@ -22,7 +22,7 @@ This project started as a personal automation tool for a video workflow I use re
 
 The tool batch-processes videos from an input folder and produces recolored **1080×1920 vertical videos** in an output folder.
 
-Instead of processing every frame with Python, it analyzes only **one reference frame** to determine which parts of the layout are static and where the actual moving video is located.
+Instead of processing every frame with Python, it analyzes just a couple of sampled frames to determine which parts of the layout are static and where the actual moving video is located, then builds the recolored static layout from a single reference frame.
 
 It then:
 
@@ -53,10 +53,9 @@ Only the embedded movie/video area is moving.
 
 So instead of repeatedly analyzing thousands of frames, this tool:
 
-1. Analyzes one reference frame
-2. Detects the moving video region
-3. Builds the recolored static template once
-4. Lets FFmpeg handle the moving video for the rest of the encode
+1. Samples a couple of frames to detect the moving video region
+2. Builds the recolored static template once, from a single reference frame
+3. Lets FFmpeg handle the moving video for the rest of the encode
 
 This keeps expensive frame-by-frame image processing outside Python.
 
@@ -73,11 +72,9 @@ Aspect-Ratio-Preserving Resize
     ↓
 Center Crop to 1080×1920
     ↓
-Extract One Reference Frame
+Extract Reference Frame (+ a Second Frame for Motion Detection)
     ↓
-Analyze Frame with OpenCV
-    ↓
-Detect Embedded Video Region
+Detect Movie Region (Motion, or Color/Saturation Fallback)
     ↓
 Build Recolored Static Template
     ↓
@@ -94,6 +91,7 @@ Final MP4
 
 ## Features
 
+* Desktop GUI (`python gui.py`) with a live pre-batch preview and interactive logo sizing, alongside the CLI
 * Whole-folder batch processing
 * Custom input folder with `--input`
 * Custom output folder with `--output`
@@ -111,6 +109,10 @@ Final MP4
 * Custom text color
 * Automatic contrasting text color
 * Color and emoji preservation
+* Optional Logo overlay (`--logo`) and Tweet block (`--avatar`/`--display-name`/...) — independent features, usable separately or together on the same video
+* Logo positioned and scaled relative to the detected movie/picture region, automatically or by manually clicking a position
+* Logo colors and transparency preserved (not recolored)
+* Tweet block: circular avatar, name, verified checkmark, handle — generated from simple inputs
 * Existing-output validation
 * Resume / skip completed videos
 * Original audio preserved
@@ -136,6 +138,7 @@ The project currently uses:
 
 * NumPy
 * OpenCV
+* Pillow
 
 ### FFmpeg
 
@@ -220,6 +223,28 @@ Linux/macOS:
 ffmpeg -encoders | grep -E "nvenc|libx264"
 ```
 
+## GUI
+
+A desktop GUI is available as an alternative to the command line:
+
+```bash
+python gui.py
+```
+
+It's a front-end for the exact same `reel_recolor.py` — starting a batch from the GUI runs the identical CLI command in the background, so behavior never diverges between the two.
+
+Features:
+
+* Live preview of the recolored template + overlays, rendered from a real reference frame of a selected input video, with no video encoding involved
+* A dropdown to preview any video in the chosen input folder
+* Background/text color pickers
+* Encoder mode selection
+* **Tweet** section: its own enable checkbox, avatar/display-name/username/verified fields, gap/scale sliders
+* **Logo** section: its own enable checkbox, file picker, and position mode (Auto, with gap/scale sliders that re-render the preview live; or manual — see below). Tweet and Logo are independent and can both be enabled at once
+* Click-to-place manual logo positioning — "Same spot for all" (one click, reused for every video) or "Per-reel" (click through videos one at a time, with progress tracking and resume across sessions) — see [Manual Logo Positioning](#manual-logo-positioning)
+* A log panel showing the same per-video output the CLI prints, with Start/Stop controls for the batch run
+* Settings (folders, colors, Tweet/Logo config) are remembered between runs in `gui_settings.json` (not committed to the repository)
+
 ## Basic Usage
 
 By default, the tool looks for videos inside:
@@ -286,6 +311,17 @@ The current options are:
 --encoder
 --color
 --text-color
+--logo
+--logo-gap
+--logo-scale
+--logo-position-mode
+--logo-positions-file
+--avatar
+--display-name
+--username
+--verified / --no-verified
+--tweet-gap
+--tweet-scale
 ```
 
 ## Choose an Input Folder
@@ -465,21 +501,13 @@ Video encoder: libx264
 NVIDIA NVENC not available; using CPU encoding.
 ```
 
-## GPU vs CPU Output Names
+## Output Naming and Resuming
 
-GPU-encoded files use a suffix containing:
+An output file has the exact same name as its input file (e.g. `1.mp4` → `1.mp4`, just in the output folder instead of the input folder) — the encoder used, colors, and logo settings don't change the filename.
 
-```text
-_recolored_cuda_
-```
+This is also how resuming an interrupted batch works: rerunning the same command skips any output that already exists and passes the [existing-output validation](#existing-output-detection) below, and only processes what's missing or incomplete — including a video whose output was left truncated by closing the tool mid-encode.
 
-CPU-encoded files use:
-
-```text
-_recolored_cpu_
-```
-
-This makes it easy to identify which encoder produced an output.
+Because the filename doesn't encode which settings produced it, changing `--color`, `--encoder`, or the logo options between runs won't by itself trigger a redo of videos that already have an output — clear the output folder (or use a different one with `--output`) to force everything to be reprocessed with new settings.
 
 ## Change the Background Color
 
@@ -555,6 +583,130 @@ Background: black
 Text: white
 ```
 
+## Tweet Block and Logo Overlay
+
+There are two entirely independent overlay features — not two modes of one shared thing. Either, both, or neither can be enabled on the same batch run:
+
+* **Tweet** — a generated "profile header" style graphic (circular avatar, bold display name, optional blue verified checkmark, `@handle`), built from simple inputs. Always positioned automatically below the detected frame.
+* **Logo** — a ready-made image file you supply, positioned either automatically below the frame or by hand (see [Manual Logo Positioning](#manual-logo-positioning) below).
+
+```bash
+python reel_recolor.py --avatar "D:\Branding\avatar.png" --display-name "Funnyhoodvidzzzzzz" --username "funnyhoodvidzzzzzz" --logo "D:\Branding\watermark.png"
+```
+
+That example uses both at once: the Tweet block below the frame, and a separate logo watermark positioned independently. Omit either group of flags to use just the other, or neither for plain recoloring.
+
+## Tweet Block
+
+```text
+--avatar
+--display-name
+--username
+--verified / --no-verified
+--tweet-gap
+--tweet-scale
+```
+
+* `--avatar` — path to a profile picture. It is automatically center-cropped and masked into a circle.
+* `--display-name` — the bold name line.
+* `--username` — the handle shown below the name. A leading `@` is added automatically if omitted.
+* `--verified` / `--no-verified` — shows or hides the blue checkmark badge next to the display name. Verified is on by default.
+
+Any combination of `--avatar`, `--display-name`, and `--username` can be used on its own; whichever parts are provided are the parts that get drawn. For example, `--avatar` alone renders just the circular picture with no text.
+
+The display name uses the same text color as the recolored template (`--text-color`, or the automatic opposite of `--color`), so it stays legible on whatever background color is chosen. The username is a lighter, muted version of that same color. The verified checkmark badge always stays brand blue, regardless of `--color`.
+
+### Tweet Positioning
+
+Always automatic, positioned relative to the detected movie/picture region (not a fixed pixel location) so it adapts per video:
+
+* **Top edge** below the **bottom edge** of the detected region.
+* **Horizontally centered** within the detected region's width.
+* **Scaled to the width** of the detected region (or a fraction of it, via `--tweet-scale`), height scaled proportionally.
+
+```bash
+python reel_recolor.py --avatar "avatar.png" --display-name "Name" --tweet-gap 60 --tweet-scale 0.6
+```
+
+Defaults:
+
+```python
+TWEET_GAP_PX = 40
+TWEET_SCALE_DEFAULT = 0.75
+```
+
+## Logo Overlay
+
+```text
+--logo
+--logo-gap
+--logo-scale
+--logo-position-mode
+--logo-positions-file
+```
+
+```bash
+python reel_recolor.py --logo "D:\Branding\logo.png"
+```
+
+If `--logo` is omitted, the Logo feature is off entirely (independent of whether Tweet is enabled).
+
+The logo image keeps its own original colors — it is not recolored like the surrounding template — and transparency (for example a PNG with an alpha channel) is preserved.
+
+### Logo Auto Positioning
+
+The default. Same relative-to-detected-region placement as Tweet, with its own independent settings:
+
+```bash
+python reel_recolor.py --logo "D:\Branding\logo.png" --logo-gap 60 --logo-scale 0.75
+```
+
+Defaults:
+
+```python
+LOGO_GAP_PX = 40
+RAW_LOGO_SCALE_DEFAULT = 1.0
+```
+
+A supplied `--logo` image defaults to filling the full detected frame width, since it's assumed to already be sized/designed the way you want. Whenever it ends up narrower than the frame (via `--logo-scale`), it's centered within the frame's width rather than left-aligned.
+
+## Manual Logo Positioning
+
+Instead of auto-placing the logo below the detected frame, its position can be set by hand — click a point on the video and the logo is centered there, **at its own native pixel size, with no scaling**. There are two ways to pick points, both driven from the [GUI](#gui):
+
+* **Same spot for all** — click once on a reference video; that point is reused for every video in the folder, including ones added later.
+* **Per-reel** — click through videos one at a time, each saved individually as you go. Positions are written to disk immediately on each click, so closing the annotator mid-session never loses progress, and reopening it resumes at the next un-decided video.
+
+In per-reel mode, each video has three possible states: not yet decided (still pending, skipped when processing), a saved click position, or explicitly marked **"No logo"** — processed and recolored normally, just without a logo overlay. This is different from the **"Skip for now"** button, which leaves a video undecided for a future session rather than deciding "no logo" for it.
+
+Both are stored in a JSON file (`<output folder>/logo_positions.json` by default):
+
+```json
+{
+  "mode": "per_reel",
+  "fixed_position": null,
+  "positions": {
+    "1.mp4": {"x": 320, "y": 1010},
+    "2.mp4": {"skip": true},
+    "3.mp4": {"x": 300, "y": 990}
+  }
+}
+```
+
+(A video like `4.mp4` that doesn't appear in `positions` at all is still pending. `2.mp4` here is decided as "no logo".)
+
+### Processing With Manual Positions
+
+```bash
+python reel_recolor.py --logo "D:\Branding\logo.png" --logo-position-mode manual
+```
+
+`--logo-position-mode manual` (default `auto`) makes the batch use whatever's in the positions file (`--logo-positions-file` to point at a different one). Whether it behaves as "same spot for all" or "per-reel" is read from the file's own `mode` field, not a separate CLI flag — so the GUI's picker and the CLI processing step always agree on what was actually annotated.
+
+**In per-reel mode, a video not yet decided one way or another is skipped** — not auto-placed, not blocked on — printed as `SKIP unannotated: <file>` and counted separately in the batch summary. A video marked "No logo" is processed and recolored normally, just without a logo. This is what makes annotating a large library incrementally practical: process however many videos are decided so far, come back later, decide more, and process again — already-completed outputs are still skipped as usual (see [Output Naming and Resuming](#output-naming-and-resuming)).
+
+`--logo-gap`/`--logo-scale` don't apply in manual mode, since there's no auto-placement or scaling happening.
+
 ## Combine All Options
 
 All command-line options can be combined.
@@ -597,14 +749,16 @@ Command-line arguments override the defaults for the current run.
 ### Default Input Folder
 
 ```python
-INPUT_FOLDER = "input_videos"
+INPUT_FOLDER = "input_videos"  # resolved next to the script itself
 ```
 
 ### Default Output Folder
 
 ```python
-OUTPUT_FOLDER = "output_videos"
+OUTPUT_FOLDER = "output_videos"  # resolved next to the script itself
 ```
+
+Both defaults resolve relative to the script's own location, not the current working directory — running `python reel_recolor.py` from a different folder still finds the same `input_videos`/`output_videos` next to the script, instead of silently looking for (and finding nothing in) folders with those names wherever the command happened to be run from. `--input`/`--output` override these defaults and are used exactly as given, relative or absolute.
 
 ### Default Encoder Mode
 
@@ -675,17 +829,34 @@ If videos begin with a black frame or fade-in, you can change this to:
 REFERENCE_TIME_SECONDS = 0.5
 ```
 
+For motion-based region detection, a second frame is also sampled this many seconds after the reference frame:
+
+```python
+MOTION_SAMPLE_OFFSET_SECONDS = 1.5
+```
+
+The static template itself is still built from only the single reference frame.
+
 ## Automatic Video Region Detection
 
-The tool attempts to detect the embedded movie/video area by analyzing one reference frame.
+The tool attempts to detect the embedded movie/video area automatically, primarily by comparing two sampled frames rather than guessing from a single frame's color.
 
-OpenCV examines properties including:
+### Motion-Based Detection (Primary)
+
+A reference frame (`REFERENCE_TIME_SECONDS`) and a second frame roughly 1.5 seconds later are extracted and compared pixel-by-pixel. Wherever pixels actually change between the two frames is treated as the embedded video's vertical extent — this is a direct measurement, so it doesn't matter whether the moving content is plain, pale, dark, or saturated.
+
+Within that vertical band, the horizontal extent is assumed to span the full frame width by default, and is only narrowed inward where there is a genuine solid dark pillarbox border on either side. The same approach avoids misclassifying a real (but static-within-the-sample or plain-colored) part of the video as "not content."
+
+### Color/Saturation Heuristic (Fallback)
+
+If the video is too short for a second distinct sample, or no significant motion is found between the two frames (for example a completely static shot), detection falls back to a single-frame heuristic based on:
 
 * Brightness
 * Saturation
-* Horizontal content distribution
 * Vertical content distribution
 * Dark separator/border regions
+
+The tool prints which method was used (`Detection method: ...`) for each video, so it's easy to tell which one applied.
 
 The detected rectangle is treated as the dynamic part of the template.
 
@@ -705,6 +876,23 @@ The program creates a mask based on differences between RGB channels.
 Pixels that appear sufficiently colorful are preserved from the original reference frame.
 
 OpenCV dilation and erosion are used to clean the preservation mask.
+
+## Black/White Snapping
+
+A template's "black" background is rarely pure `#000000` — compression, shadows, or a slight color cast can leave it a few shades off (for example a dark reddish-brown instead of black). Inverting that exact off-black shade produces a visibly tinted patch (for example pale blue) instead of matching the rest of the recolored background, which inverts cleanly from true black to true white.
+
+Before recoloring, pixels already close to black or white are snapped to the exact value:
+
+```python
+BLACK_SNAP_THRESHOLD = COLOR_MIN_BRIGHTNESS  # 55
+WHITE_SNAP_THRESHOLD = 215
+```
+
+A pixel whose brightest channel is below `BLACK_SNAP_THRESHOLD` is treated as pure black; a pixel whose darkest channel is above `WHITE_SNAP_THRESHOLD` is treated as pure white. This only affects the recolor step — the original, unsnapped pixel values are still used for [color/emoji preservation](#color-preservation) and for restoring the movie rectangle.
+
+`BLACK_SNAP_THRESHOLD` deliberately matches `COLOR_MIN_BRIGHTNESS` so there's no gap in between: a pixel is either dark enough to snap to black, or bright enough to be a color-preservation candidate, never neither. A gap there previously let a shadow/watermark in the 40–55 brightness range fall through as a partially-inverted "ghost" color instead of clean white.
+
+Color/emoji preservation is also suppressed near the detected movie rectangle's edges (`EDGE_BLEED_MARGIN_PX`, directly above/below; the full remaining width, left/right — see [Color Preservation](#color-preservation)), since a colorful fragment that close to the boundary is almost always bleed-through from the live video rather than a genuine static emoji/logo elsewhere in the template.
 
 ## Performance Approach
 
@@ -768,6 +956,9 @@ reel-template-recolor/
 │   └── after.jpg
 │
 ├── reel_recolor.py
+├── gui.py
+├── preview.py
+├── logo_positions.py
 ├── requirements.txt
 ├── .gitignore
 ├── LICENSE
@@ -794,6 +985,8 @@ This helps catch syntax errors before changes are merged.
 * Python
 * OpenCV
 * NumPy
+* Pillow
+* CustomTkinter
 * FFmpeg
 * ffprobe
 * NVIDIA NVENC
@@ -822,7 +1015,7 @@ Examples include:
 
 ### Single Reference Frame
 
-Detection currently uses one reference frame per video.
+Region detection primarily compares two sampled frames (motion-based), which is more reliable than judging a single frame's color. The static template itself, however, is still built from only the single reference frame (`REFERENCE_TIME_SECONDS`).
 
 If that frame contains:
 
@@ -831,9 +1024,9 @@ If that frame contains:
 * A transition
 * An unusual scene
 
-automatic region detection may be less accurate.
+the template's colors/preserved elements may be less accurate, and if the video has no meaningful motion within the sampled window (e.g. a completely static shot), detection falls back to the single-frame color/saturation heuristic, which can be less accurate for plain or unusually lit content.
 
-Changing `REFERENCE_TIME_SECONDS` can help.
+Changing `REFERENCE_TIME_SECONDS` (and, if needed, `MOTION_SAMPLE_OFFSET_SECONDS`) can help.
 
 ### CPU Encoding Performance
 
